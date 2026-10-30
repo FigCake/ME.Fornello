@@ -1,7 +1,7 @@
-/*! Fornello 0.3.5 — page runner for Marinara Engine 2.5.x (External Extension).
+/*! Fornello 0.3.6 — page runner for Marinara Engine 2.5.x (External Extension).
  * Runs HTML pages and their scripts in Marinara with a JavaScript interpreter.
  * Copyright (C) 2026 FigCake. Works with Marinara Engine (AGPL-3.0); includes sval, acorn, sucrase and html-to-image (MIT) and Lucide icons (ISC).
- * License: AGPL-3.0. Source: https://github.com/FigCake/ME.Fornello (ME-Fornello-0.3.5-source.zip) */
+ * License: AGPL-3.0. Source: https://github.com/FigCake/ME.Fornello (ME-Fornello-0.3.6-source.zip) */
 "use strict";
 (() => {
   var __create = Object.create;
@@ -4317,7 +4317,7 @@ ${line}`))) return false;
   }
 
   // package.json
-  var version = "0.3.5";
+  var version = "0.3.6";
 
   // src/api/shared-globals.ts
   var values = /* @__PURE__ */ new Map();
@@ -35343,6 +35343,29 @@ button.help:hover, button.help[aria-expanded="true"] { color: var(--d-hl-text); 
     for (const c of children) if (c !== null && c !== void 0 && c !== false) node.append(c);
     return node;
   }
+  var picking = null;
+  function pickFile(onFile, accept) {
+    picking?.remove();
+    const input2 = document.createElement("input");
+    input2.type = "file";
+    const phone = window.matchMedia?.("(pointer: coarse)").matches ?? false;
+    const picturesOnly = accept.split(",").every((a) => a.trim().startsWith("image/"));
+    if (!phone || picturesOnly) input2.accept = accept;
+    input2.style.display = "none";
+    const done = () => {
+      input2.remove();
+      if (picking === input2) picking = null;
+    };
+    input2.addEventListener("change", () => {
+      const file = input2.files?.[0];
+      done();
+      if (file) onFile(file);
+    });
+    input2.addEventListener("cancel", done);
+    document.body.append(input2);
+    picking = input2;
+    input2.click();
+  }
 
   // src/components/rules.ts
   var VALUES = `Keep the tag name and the value names exactly as they are. Write lists and objects as {[...]} / {{...}} and text as "...".`;
@@ -36852,12 +36875,7 @@ ${text}
     editingSet = null;
     /** Picks a file: one .jsx or .html goes into the editor, others into the picker. */
     importFile() {
-      const input2 = document.createElement("input");
-      input2.type = "file";
-      input2.accept = ".json,.png,.jsx,.tsx,.js,.html,.htm,.txt";
-      input2.addEventListener("change", async () => {
-        const file = input2.files?.[0];
-        if (!file) return;
+      pickFile(async (file) => {
         if (/\.(jsx|tsx|js|txt|html?)$/i.test(file.name)) {
           this.host.newComponent(await file.text(), /\.html?$/i.test(file.name) ? "html" : "jsx", file.name);
           return;
@@ -36871,8 +36889,7 @@ ${text}
         this.editingSet = null;
         this.importing = { found, picked: new Set(found.items.map((_2, i) => i)), asSet: found.items.length > 1 };
         this.host.render();
-      });
-      input2.click();
+      }, ".json,.png,.jsx,.tsx,.js,.html,.htm,.txt");
     }
     exportFile(defs, name, setName = "") {
       saveBlob(new Blob([exportComponents(defs, setName)], { type: "application/json" }), fileName(name));
@@ -38507,12 +38524,7 @@ textarea.small { min-height: 64px; resize: vertical; font: 12px/1.45 var(--d-mon
     }
     /** Picks a file (a script file, a card PNG or JSON, a .js) and shows what is in it, to choose from. */
     importFile(place) {
-      const input2 = document.createElement("input");
-      input2.type = "file";
-      input2.accept = ".json,.zip,.png,.js,.txt";
-      input2.addEventListener("change", async () => {
-        const file = input2.files?.[0];
-        if (!file) return;
+      pickFile(async (file) => {
         let found;
         try {
           found = await scriptsFromFile(file.name, new Uint8Array(await file.arrayBuffer()));
@@ -38525,8 +38537,7 @@ textarea.small { min-height: 64px; resize: vertical; font: 12px/1.45 var(--d-mon
           return;
         }
         this.edit({ kind: "import", place, found, picked: new Set(found.items.map((_2, i) => i)) });
-      });
-      input2.click();
+      }, ".json,.zip,.png,.js,.txt");
     }
     importer(e) {
       const rows = e.found.items.map(
