@@ -1,6 +1,6 @@
-be01b6caf0b07a92d5e4c0d5627aa8e463182afefe72d3bac96ee9b725d45c9f  extension.js
-7ac7094de51a1014575b0a02eaa0d3865b5ff541af77e6ca553f0c8dd04a36c3  manifest.json
+caeae2745b8153112d66d74493666fc492ab08d6c99e28a4a997d1cd2d89e9cf  extension.js
+59da0b30b356440102f5781c90674fdb4611fcb1c5092adf21bd0fd1f849915d  manifest.json
 0e191d9f2a706566bae9dae293e5c798127b48cee94582c8af558318038501a7  THIRD_PARTY_NOTICES.txt
-0ab4a634823e7d89fd71e04ed41fe4461da1f6b544190186760a7855e16b3b3f  ME-Fornello-0.3.5-source.zip
+e5c0d00c1c7da99f237fd4147cdd72fd662d4505ada394252af8907edbbe18aa  ME-Fornello-0.3.6-source.zip
 
-Marinara content hash (shown in "Review and Run"): sha256:e9423ad9cfc6526c452f60a47e62666808f9cb675cc1a46c07dd1dd582faaae2
+Marinara content hash (shown in "Review and Run"): sha256:86bb93a89012322f0bab9d0a6618b6d44d9d076766c13a43165460c5e243458d

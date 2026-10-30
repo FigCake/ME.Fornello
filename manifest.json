@@ -3,7 +3,7 @@
   "version": 1,
   "config": {
     "name": "Fornello",
-    "version": "0.3.5",
+    "version": "0.3.6",
     "description": "Runs HTML pages with their scripts inside Marinara: HTML code blocks in chat messages, and pages from other extensions (Dispensa's 🌟 viewer). Marinara's security policy blocks inline scripts, so Fornello runs them in a JavaScript interpreter (sval). Pages can call the AI, send messages, and read and write chat variables and lorebooks (short commands, plus JS-Slash-Runner names, so SillyTavern card pages run too). By default the newest pages on screen run on their own; settings switch this to click to run, or off. 채팅 속 HTML 페이지를 스크립트까지 실행합니다. 마리나라가 막는 스크립트를 내장 해석기로 돌리며, 페이지에서 AI 호출과 채팅 변수 읽기·쓰기를 할 수 있어요. 기본은 화면의 최근 페이지가 바로 실행되고, 설정에서 눌러서 실행·끄기로 바꿀 수 있어요.",
     "runtime": "client",
     "capabilities": [
