@@ -1,7 +1,7 @@
-/*! Fornello 0.3.6 — page runner for Marinara Engine 2.5.x (External Extension).
+/*! Fornello 0.3.7 — page runner for Marinara Engine 2.5.x (External Extension).
  * Runs HTML pages and their scripts in Marinara with a JavaScript interpreter.
  * Copyright (C) 2026 FigCake. Works with Marinara Engine (AGPL-3.0); includes sval, acorn, sucrase and html-to-image (MIT) and Lucide icons (ISC).
- * License: AGPL-3.0. Source: https://github.com/FigCake/ME.Fornello (ME-Fornello-0.3.6-source.zip) */
+ * License: AGPL-3.0. Source: https://github.com/FigCake/ME.Fornello (ME-Fornello-0.3.7-source.zip) */
 "use strict";
 (() => {
   var __create = Object.create;
@@ -111,10 +111,10 @@
       resolved = scoped;
       return scoped;
     }
-    const KEY2 = `${EXTENSION.id}-dev-storage`;
-    const read3 = () => {
+    const KEY3 = `${EXTENSION.id}-dev-storage`;
+    const read4 = () => {
       try {
-        return JSON.parse(localStorage.getItem(KEY2) ?? "{}");
+        return JSON.parse(localStorage.getItem(KEY3) ?? "{}");
       } catch {
         return {};
       }
@@ -123,10 +123,10 @@
       version: 0,
       log: console,
       storage: {
-        get: async () => read3(),
+        get: async () => read4(),
         patch: async (values2) => {
-          const next2 = { ...read3(), ...values2 };
-          localStorage.setItem(KEY2, JSON.stringify(next2));
+          const next2 = { ...read4(), ...values2 };
+          localStorage.setItem(KEY3, JSON.stringify(next2));
           return next2;
         }
       },
@@ -159,10 +159,10 @@
       cache: "no-store",
       signal: options.signal
     });
-    const text = await res.text();
-    let data = text;
+    const text2 = await res.text();
+    let data = text2;
     try {
-      data = text ? JSON.parse(text) : null;
+      data = text2 ? JSON.parse(text2) : null;
     } catch {
     }
     if (!res.ok) {
@@ -188,8 +188,8 @@
   function parseObject(v) {
     if (typeof v === "string") {
       try {
-        const parsed = JSON.parse(v);
-        return parsed && typeof parsed === "object" ? parsed : {};
+        const parsed2 = JSON.parse(v);
+        return parsed2 && typeof parsed2 === "object" ? parsed2 : {};
       } catch {
         return {};
       }
@@ -200,8 +200,8 @@
     if (Array.isArray(v)) return v.map(String);
     if (typeof v === "string") {
       try {
-        const parsed = JSON.parse(v);
-        return Array.isArray(parsed) ? parsed.map(String) : [];
+        const parsed2 = JSON.parse(v);
+        return Array.isArray(parsed2) ? parsed2.map(String) : [];
       } catch {
         return [];
       }
@@ -303,6 +303,14 @@
     });
   }
   var MESSAGE_DATA = "fornelloData";
+  var STORY_DATA = "fornelloStory";
+  var STORY_KEYS = { dice: "fornelloDice", filled: "fornelloFilled", edits: "fornelloEdits", effectsRun: "fornelloEffectsRun" };
+  var storyExtra = (field2, value2) => ({ [STORY_KEYS[field2]]: value2 });
+  function readStory(extra) {
+    const story = extra[STORY_DATA] ? { ...parseObject(extra[STORY_DATA]) } : {};
+    for (const [field2, key] of Object.entries(STORY_KEYS)) if (Object.hasOwn(extra, key)) story[field2] = extra[key];
+    return Object.keys(story).length ? story : void 0;
+  }
   var isSaved = (id) => !!id && !id.startsWith("__");
   async function listMessages(chatId, { fresh = false } = {}) {
     const list = await remembered(messageLists, chatId, fresh ? KEEP.sameMoment : KEEP.messages, () => readMessages(chatId));
@@ -335,7 +343,22 @@
       const extra = parseObject(m2.extra);
       const role = m2.role === "assistant" ? "char" : m2.role === "user" ? "user" : m2.role === "narrator" ? "narrator" : "system";
       const name = role === "char" ? m2.characterId && names.get(m2.characterId) || cast[0]?.name || "Character" : role === "user" ? String(parseObject(extra.personaSnapshot).name || me2.name) : role === "narrator" ? "Narrator" : "System";
-      return { id: m2.id, num: i + 1, role, name, text: m2.content ?? "", hidden: m2.hidden === true || extra.hidden === true || extra.hiddenFromAI === true, characterId: m2.characterId ?? null, swipe: Number(m2.activeSwipeIndex ?? 0), swipes: Number(m2.swipeCount ?? 1), data: parseObject(extra[MESSAGE_DATA]), at: m2.createdAt };
+      const expressions = Object.fromEntries(Object.entries(parseObject(extra.spriteExpressions)).filter((e) => typeof e[1] === "string" && !!e[1]));
+      return {
+        id: m2.id,
+        num: i + 1,
+        role,
+        name,
+        text: m2.content ?? "",
+        hidden: m2.hidden === true || extra.hidden === true || extra.hiddenFromAI === true,
+        characterId: m2.characterId ?? null,
+        swipe: Number(m2.activeSwipeIndex ?? 0),
+        swipes: Number(m2.swipeCount ?? 1),
+        data: parseObject(extra[MESSAGE_DATA]),
+        .../* @__PURE__ */ ((story) => story ? { story } : {})(readStory(extra)),
+        at: m2.createdAt,
+        ...Object.keys(expressions).length ? { expressions } : {}
+      };
     });
   }
   function alwaysOnLore(chatId) {
@@ -424,6 +447,522 @@
     const id = currentChatId();
     if (!id) throw new Error(t("No chat is open.", "열려 있는 채팅이 없어요."));
     return id;
+  }
+
+  // src/assets/model.ts
+  var CARD_KEY = "fornello";
+  var NAME_MAX = 120;
+  var WORDS_MAX = 20;
+  var text = (v, max) => typeof v === "string" ? v.trim().slice(0, max) : "";
+  function normalizeAsset(raw) {
+    const r = parseObject(raw);
+    const name = text(r.name, NAME_MAX);
+    const file = text(r.file, 200);
+    if (!name || !file || /[\\/]|^\.+$/.test(file)) return null;
+    const place = r.place === "sprite" ? "sprite" : "gallery";
+    const person = text(r.person, NAME_MAX);
+    const words = Array.isArray(r.words) ? [...new Set(r.words.map((w2) => text(w2, 60)).filter(Boolean))].slice(0, WORDS_MAX) : [];
+    const hash = text(r.hash, 40);
+    return { name, file, place, ...person ? { person } : {}, ...words.length ? { words } : {}, .../^[0-9a-z-]+$/.test(hash) ? { hash } : {} };
+  }
+  function cardAssets(data) {
+    const ours = parseObject(parseObject(data.extensions)[CARD_KEY]);
+    return Array.isArray(ours.assets) ? ours.assets.map(normalizeAsset).filter((a) => !!a) : [];
+  }
+  function spriteAssets(sprites) {
+    return sprites.filter((s) => s.expression && s.filename).map((s) => ({ name: s.expression, file: s.filename, place: "sprite" }));
+  }
+  function assetUrl(characterId, asset) {
+    const id = encodeURIComponent(characterId);
+    const file = encodeURIComponent(asset.file);
+    return asset.place === "sprite" ? `/api/sprites/${id}/file/${file}` : `/api/characters/${id}/gallery/file/${file}`;
+  }
+  function withSprites(listed, sprites) {
+    return [...listed, ...sprites.filter((sp) => !listed.some((a) => a.place === "sprite" && a.file === sp.file))];
+  }
+
+  // src/assets/names.ts
+  var PICTURE_EXT = /\.(png|jpe?g|gif|webp|avif|svg|mp4|webm)$/i;
+  function nameKey(name) {
+    return name.normalize("NFKC").trim().replace(PICTURE_EXT, "").toLowerCase().replace(/[\s_\-.]+/g, "");
+  }
+  function distance(a, b2) {
+    if (a === b2) return 0;
+    const x2 = [...a];
+    const y2 = [...b2];
+    let row = Array.from({ length: y2.length + 1 }, (_2, i) => i);
+    for (let i = 1; i <= x2.length; i++) {
+      const next2 = [i];
+      for (let j = 1; j <= y2.length; j++) next2[j] = Math.min(row[j] + 1, next2[j - 1] + 1, row[j - 1] + (x2[i - 1] === y2[j - 1] ? 0 : 1));
+      row = next2;
+    }
+    return row[y2.length];
+  }
+  var nearEnough = (key) => Math.min(3, Math.floor([...key].length / 4));
+  function samePerson(written2, person) {
+    const w2 = nameKey(written2);
+    if (!w2) return false;
+    const words = person.normalize("NFKC").trim().split(/[\s_]+/);
+    return w2 === nameKey(person) || w2 === nameKey(words[0] ?? "");
+  }
+  var extOf = (name) => PICTURE_EXT.exec(name.trim())?.[0].toLowerCase().replace(".jpeg", ".jpg") ?? "";
+  function findAssets(assets, wanted) {
+    const found = findLoose(assets, wanted);
+    const ext = extOf(wanted.name);
+    if (!ext || found.length < 2) return found;
+    const same3 = found.filter((a) => extOf(a.name) === ext || !extOf(a.name) && extOf(a.file) === ext);
+    return same3.length ? same3 : found;
+  }
+  function findLoose(assets, wanted) {
+    const name = nameKey(wanted.name);
+    if (!name) return [];
+    const person = wanted.person ? nameKey(wanted.person) : "";
+    const full = person + name;
+    const keyed = assets.map((a) => ({ a, key: nameKey(a.name), owner: a.person && wanted.person && samePerson(wanted.person, a.person) ? person : a.person ? nameKey(a.person) : "" }));
+    const exact = keyed.filter((k2) => k2.key === full || !person && k2.key === name);
+    if (exact.length) return exact.map((k2) => k2.a);
+    if (person) {
+      const theirs = keyed.filter((k2) => k2.owner === person && k2.key === name);
+      if (theirs.length) return theirs.map((k2) => k2.a);
+    } else {
+      const someone = keyed.filter((k2) => k2.key.length > name.length && k2.key.endsWith(name));
+      if (someone.length) return someone.map((k2) => k2.a);
+    }
+    let best = Infinity;
+    let found = [];
+    for (const k2 of keyed) {
+      const target = person && k2.owner === person ? name : full;
+      const d2 = distance(k2.key, target);
+      if (d2 > nearEnough(target)) continue;
+      if (d2 < best) [best, found] = [d2, [k2.a]];
+      else if (d2 === best) found.push(k2.a);
+    }
+    return found;
+  }
+  function pickOne(list, seed) {
+    if (list.length < 2) return list[0];
+    let h3 = 2166136261;
+    for (let i = 0; i < seed.length; i++) h3 = Math.imul(h3 ^ seed.charCodeAt(i), 16777619);
+    return list[(h3 >>> 0) % list.length];
+  }
+
+  // src/shared/react-bridge.ts
+  var cached = null;
+  function isQueryClient(v) {
+    return !!v && typeof v === "object" && typeof v.invalidateQueries === "function" && typeof v.getQueryCache === "function";
+  }
+  function findQueryClient() {
+    if (cached) return cached;
+    const node = document.querySelector("#root *");
+    const fiberKey = node && Object.keys(node).find((k2) => k2.startsWith("__reactFiber$"));
+    for (let fiber = fiberKey ? node[fiberKey] : null; fiber; fiber = fiber.return ?? null) {
+      const client = fiber.memoizedProps?.client;
+      if (isQueryClient(client)) return cached = client;
+    }
+    return null;
+  }
+  function refreshChatQueries(chatId) {
+    const client = findQueryClient();
+    if (!client) return false;
+    void client.invalidateQueries({ queryKey: ["chats", "messages", chatId] });
+    void client.invalidateQueries({ queryKey: ["chats", chatId] });
+    return true;
+  }
+  function refreshQueries(keys) {
+    const client = findQueryClient();
+    if (!client) return false;
+    for (const queryKey of keys) void client.invalidateQueries({ queryKey });
+    return true;
+  }
+
+  // src/regex.ts
+  function parse(row) {
+    const applyMode = String(row.applyMode ?? (String(row.promptOnly) === "true" ? "prompt" : "display"));
+    const num2 = (v) => v === null || v === void 0 || v === "" ? null : Number(v);
+    return {
+      id: String(row.id),
+      name: String(row.name ?? ""),
+      order: Number(row.order ?? 0),
+      enabled: row.enabled === true || row.enabled === "true",
+      findRegex: String(row.findRegex ?? ""),
+      replaceString: String(row.replaceString ?? ""),
+      trimStrings: parseList(row.trimStrings),
+      placement: parseList(row.placement),
+      flags: String(row.flags ?? ""),
+      display: applyMode === "display" || applyMode === "both",
+      prompt: applyMode === "prompt" || applyMode === "both",
+      targetCharacterIds: parseList(row.targetCharacterIds),
+      targetPromptPresetIds: parseList(row.targetPromptPresetIds),
+      minDepth: num2(row.minDepth),
+      maxDepth: num2(row.maxDepth)
+    };
+  }
+  function expand(template, args, trim) {
+    const last = args[args.length - 1];
+    const groups = typeof last === "object" && last !== null ? last : void 0;
+    const count = args.length - (groups ? 3 : 2);
+    return template.replace(/\{\{match\}\}/gi, "$0").replace(/\$(\d+)|\$<([^>]+)>/g, (_2, n, name) => {
+      const value2 = n !== void 0 ? Number(n) < count ? args[Number(n)] : void 0 : groups?.[name];
+      if (typeof value2 !== "string" || !value2) return "";
+      let out = value2;
+      for (const t2 of trim) if (t2) out = out.split(t2).join("");
+      return out;
+    });
+  }
+  var cache = null;
+  function forgetRegexScripts() {
+    cache = null;
+  }
+  function regexScripts() {
+    if (!cache || Date.now() - cache.at > 3e4) {
+      const scripts = api("/regex-scripts").then((rows) => Array.isArray(rows) ? rows.map(parse) : []).catch(() => []);
+      cache = { at: Date.now(), scripts };
+    }
+    return cache.scripts;
+  }
+  function applyDisplayRegex(text2, scripts, target, pageSources) {
+    return applyRegexScripts(text2, scripts, { ...target, mode: "display" }, pageSources);
+  }
+  function applyRegexScripts(text2, scripts, target, pageSources) {
+    const placement = target.role === "user" ? "user_input" : "ai_output";
+    let result = text2;
+    for (const s of scripts) {
+      if (!s.enabled || !(target.mode === "display" ? s.display : s.prompt) || !s.findRegex || !s.placement.includes(placement)) continue;
+      if (s.targetCharacterIds.length && !s.targetCharacterIds.some((id) => target.chatCharacters.includes(id))) continue;
+      if (s.targetPromptPresetIds.length && target.presetId !== void 0 && !(target.presetId && s.targetPromptPresetIds.includes(target.presetId))) continue;
+      if (s.minDepth !== null && target.depth < s.minDepth) continue;
+      if (s.maxDepth !== null && target.depth > s.maxDepth) continue;
+      let re2;
+      try {
+        re2 = new RegExp(s.findRegex, s.flags);
+      } catch {
+        continue;
+      }
+      const names = target.names;
+      const macros = (t2) => names ? t2.replace(/\{\{user\}\}/gi, names.user).replace(/\{\{char\}\}/gi, names.char) : t2;
+      result = result.replace(re2, (...args) => {
+        const out = macros(expand(s.replaceString, args, s.trimStrings));
+        const matched = String(args[0]);
+        if (pageSources && out.includes("```") && text2.includes(matched)) pageSources.push(matched);
+        return out;
+      });
+    }
+    return result;
+  }
+
+  // src/api/library.ts
+  var enc2 = encodeURIComponent;
+  var items = (res) => Array.isArray(res) ? res : res?.items ?? [];
+  var KEEP2 = 6e4;
+  var lists = /* @__PURE__ */ new Map();
+  function kept(key, load) {
+    const hit = lists.get(key);
+    if (hit && Date.now() - hit.at < KEEP2) return hit.value;
+    const value2 = load();
+    lists.set(key, { at: Date.now(), value: value2 });
+    value2.catch(() => lists.delete(key));
+    return value2;
+  }
+  function forgetLibrary(key) {
+    if (key) lists.delete(key);
+    else lists.clear();
+  }
+  function characterNames() {
+    return kept("characters", async () => {
+      const out = [];
+      for (let offset = 0; offset < 1e5; ) {
+        const page = await api(`/characters/catalog?limit=100&offset=${offset}`);
+        const got = items(page);
+        out.push(...got.map((c) => ({ id: String(c.id), name: String(c.name ?? "") })));
+        if (!page?.hasMore || !got.length) break;
+        offset += got.length;
+      }
+      return out;
+    });
+  }
+  async function characterData(id) {
+    const raw = await api(`/characters/${enc2(id)}`);
+    return parseObject(raw.data);
+  }
+  async function saveCharacter(id, data) {
+    await api(`/characters/${enc2(id)}`, { method: "PATCH", body: { data } });
+    forgetPeople();
+    forgetLibrary("characters");
+    refreshQueries([["characters"]]);
+  }
+  async function createCharacter(data) {
+    const made2 = await api("/characters", { method: "POST", body: { data } });
+    forgetLibrary("characters");
+    refreshQueries([["characters"]]);
+    return made2.id;
+  }
+  async function deleteCharacter(id) {
+    await api(`/characters/${enc2(id)}`, { method: "DELETE" });
+    forgetPeople();
+    forgetLibrary("characters");
+    refreshQueries([["characters"]]);
+  }
+  async function importCharacter(file, filename, embedded = true) {
+    let res;
+    if (file instanceof Blob) {
+      const form = new FormData();
+      form.append("importEmbeddedLorebook", String(embedded));
+      form.append("file", file, filename || "card.png");
+      const sent = await (getMarinara().fetch ?? fetch)("/api/import/st-character", { method: "POST", headers: { "x-marinara-csrf": "1" }, body: form, credentials: "same-origin" });
+      res = await sent.json().catch(() => ({ success: false, error: `${sent.status}` }));
+    } else {
+      res = await api("/import/st-character", { method: "POST", body: { ...file, importEmbeddedLorebook: embedded } });
+    }
+    if (res?.success === false) throw new Error(res.error ?? "Import failed");
+    forgetLibrary("characters");
+    refreshQueries([["characters"], ["lorebooks"], ["regex-scripts"]]);
+    forgetLore();
+    forgetRegexScripts();
+    return res?.characterId ?? res?.id ?? null;
+  }
+  var personaRow = (p2) => ({
+    id: String(p2.id),
+    name: String(p2.name ?? ""),
+    description: String(p2.description ?? ""),
+    personality: String(p2.personality ?? ""),
+    scenario: String(p2.scenario ?? ""),
+    backstory: String(p2.backstory ?? ""),
+    appearance: String(p2.appearance ?? ""),
+    comment: String(p2.comment ?? ""),
+    tags: parseList(p2.tags),
+    avatarPath: typeof p2.avatarPath === "string" && p2.avatarPath ? p2.avatarPath : null
+  });
+  function personaList() {
+    return kept("personas", async () => items(await api("/characters/personas/list")).map(personaRow));
+  }
+  async function savePersona(id, fields) {
+    await api(`/characters/personas/${enc2(id)}`, { method: "PATCH", body: fields });
+    forgetPeople();
+    forgetLibrary("personas");
+    refreshQueries([["personas"]]);
+  }
+  async function createPersona(fields) {
+    const made2 = await api("/characters/personas", { method: "POST", body: fields });
+    forgetLibrary("personas");
+    refreshQueries([["personas"]]);
+    return made2.id;
+  }
+  async function deletePersona(id) {
+    await api(`/characters/personas/${enc2(id)}`, { method: "DELETE" });
+    forgetPeople();
+    forgetLibrary("personas");
+    refreshQueries([["personas"]]);
+  }
+  async function setChatPersona(chatId, personaId) {
+    await api(`/chats/${enc2(chatId)}`, { method: "PATCH", body: { personaId } });
+    forgetChat(chatId);
+    forgetPeople();
+    refreshQueries([["chats", "detail", chatId]]);
+  }
+  async function bookList() {
+    return items(await api("/lorebooks")).map((b2) => ({
+      id: String(b2.id),
+      name: String(b2.name ?? ""),
+      characterIds: parseList(b2.characterIds),
+      personaIds: parseList(b2.personaIds),
+      chatId: typeof b2.chatId === "string" && b2.chatId ? b2.chatId : null,
+      isGlobal: b2.isGlobal === true || b2.isGlobal === "true",
+      enabled: b2.enabled !== false && b2.enabled !== "false",
+      category: String(b2.category ?? "")
+    }));
+  }
+  async function patchBook(id, patch) {
+    await api(`/lorebooks/${enc2(id)}`, { method: "PATCH", body: patch });
+    forgetLore();
+    refreshQueries([["lorebooks"]]);
+  }
+  async function deleteBook(id) {
+    await api(`/lorebooks/${enc2(id)}`, { method: "DELETE" });
+    forgetLore();
+    refreshQueries([["lorebooks"]]);
+  }
+  async function importBook(json2, filename) {
+    const res = await api("/import/st-lorebook", { method: "POST", body: { ...json2, __filename: filename } });
+    if (res?.success === false) throw new Error(res.error ?? "Import failed");
+    forgetLore();
+    refreshQueries([["lorebooks"]]);
+    return res?.lorebookId ?? res?.id ?? null;
+  }
+  async function chatBookIds(chatId) {
+    return parseList(parseObject((await chatDetail(chatId)).metadata).activeLorebookIds);
+  }
+  async function setChatBookIds(chatId, ids) {
+    await api(`/chats/${enc2(chatId)}/metadata`, { method: "PATCH", body: { activeLorebookIds: ids } });
+    forgetDetail(chatId);
+    forgetLore();
+    refreshQueries([["chats", "detail", chatId], ["lorebooks"]]);
+  }
+  function presetList() {
+    return kept("presets", async () => items(await api("/prompts")).map((p2) => ({ id: String(p2.id), name: String(p2.name ?? "") })));
+  }
+  async function createRegex(fields) {
+    const made2 = await api("/regex-scripts", { method: "POST", body: fields });
+    forgetRegexScripts();
+    refreshQueries([["regex-scripts"]]);
+    return made2.id;
+  }
+  async function patchRegex(id, fields) {
+    await api(`/regex-scripts/${enc2(id)}`, { method: "PATCH", body: fields });
+    forgetRegexScripts();
+    refreshQueries([["regex-scripts"]]);
+  }
+  async function deleteRegex(id) {
+    await api(`/regex-scripts/${enc2(id)}`, { method: "DELETE" });
+    forgetRegexScripts();
+    refreshQueries([["regex-scripts"]]);
+  }
+  function usableFace(face) {
+    if (!face) return false;
+    return typeof face.url === "string" && typeof face.family === "string";
+  }
+  function serverFonts() {
+    return kept("fonts", () => api("/fonts").then((list) => Array.isArray(list) ? list.filter(usableFace) : []));
+  }
+  async function importLorebook(json2, name, characterId) {
+    const there = (await bookList()).find((b2) => b2.name.normalize("NFC") === name.normalize("NFC") && (b2.characterIds ?? []).includes(characterId));
+    if (there) return { id: there.id, already: true };
+    const res = await api("/import/st-lorebook", { method: "POST", body: { ...json2, __filename: name } });
+    if (res?.success === false || !res?.lorebookId) throw new Error(res?.error ?? "Import failed");
+    await api(`/lorebooks/${encodeURIComponent(res.lorebookId)}`, { method: "PATCH", body: { characterIds: [characterId] } });
+    refreshQueries([["lorebooks"]]);
+    forgetLore();
+    return { id: res.lorebookId, already: false };
+  }
+
+  // src/assets/store.ts
+  var enc3 = encodeURIComponent;
+  var toPicture = (raw) => {
+    const file = String(raw.filePath ?? "").split("/").pop() ?? "";
+    return raw.id && file ? { id: String(raw.id), file, url: String(raw.url ?? ""), prompt: String(raw.prompt ?? "") } : null;
+  };
+  async function galleryOf(characterId) {
+    const list = await api(`/characters/${enc3(characterId)}/gallery`);
+    return (Array.isArray(list) ? list : []).map(toPicture).filter((p2) => !!p2);
+  }
+  async function spriteListOf(characterId) {
+    const list = await api(`/sprites/${enc3(characterId)}`).catch(() => []);
+    return spriteAssets((Array.isArray(list) ? list : []).map((s) => ({ expression: String(s.expression ?? ""), filename: String(s.filename ?? "") })));
+  }
+  async function uploadToGallery(characterId, file, fileName2, prompt = "") {
+    const form = new FormData();
+    form.append("prompt", prompt);
+    form.append("file", file, fileName2);
+    const res = await (getMarinara().fetch ?? fetch)(`/api/characters/${enc3(characterId)}/gallery/upload`, { method: "POST", headers: { "x-marinara-csrf": "1" }, body: form, credentials: "same-origin" });
+    const body = parseObject(await res.json().catch(() => ({})));
+    const picture = res.ok ? toPicture(body) : null;
+    if (!picture) throw new Error(String(body.error ?? t(`Upload failed (${res.status})`, `올리지 못했어요 (${res.status})`)));
+    return picture;
+  }
+  function base64(bytes2) {
+    let text2 = "";
+    for (let i = 0; i < bytes2.length; i += 32768) text2 += String.fromCharCode(...bytes2.subarray(i, i + 32768));
+    return btoa(text2);
+  }
+  async function uploadSprite(characterId, expression, bytes2, type) {
+    await api(`/sprites/${enc3(characterId)}`, { method: "POST", body: { expression, image: `data:image/${type};base64,${base64(bytes2)}` } });
+  }
+  async function setPortrait(characterId, bytes2, type) {
+    await api(`/characters/${enc3(characterId)}/avatar`, { method: "POST", body: { avatar: `data:image/${type};base64,${base64(bytes2)}` } });
+    forgetPeople();
+    refreshQueries([["characters"]]);
+  }
+  async function deleteFromGallery(characterId, pictureId) {
+    await api(`/characters/${enc3(characterId)}/gallery/${enc3(pictureId)}`, { method: "DELETE" });
+  }
+  async function readAssets(characterId) {
+    return cardAssets(await characterData(characterId));
+  }
+  async function saveAssets(characterId, assets) {
+    await api(`/characters/${enc3(characterId)}`, { method: "PATCH", body: { data: { extensions: { [CARD_KEY]: { assets } } }, skipVersionSnapshot: true } });
+    forgetPeople();
+    forgetLibrary("characters");
+    refreshQueries([["characters"]]);
+  }
+
+  // src/assets/tags.ts
+  var BRACKET = /\[img:{1,2}([^\]\n]+)\]/gi;
+  var CURLY = /\{\{(img|image|asset|emotion|raw|path)::([^{}\n]+)\}\}/gi;
+  var SHOWN_PREFIX = "data:,fornello-pic::";
+  var SHOWN = /data:,fornello-pic::([^"'()<>\n]+)/g;
+  function split(body, separator, people) {
+    const parts = body.split(separator).map((p2) => p2.trim()).filter(Boolean);
+    if (parts.length > 1 && people.some((p2) => samePerson(parts[0], p2))) return { person: parts[0], name: parts.slice(1).join(separator) };
+    return { name: parts.join(separator) };
+  }
+  function findTags(text2, people = []) {
+    const out = [];
+    for (const m2 of text2.matchAll(BRACKET)) {
+      const { name, person } = split(m2[1], ":", people);
+      if (name) out.push({ start: m2.index, end: m2.index + m2[0].length, kind: "img", name, ...person ? { person } : {} });
+    }
+    for (const m2 of text2.matchAll(CURLY)) {
+      const kind = /^(raw|path)$/i.test(m2[1]) ? "raw" : "img";
+      const { name, person } = split(m2[2], "::", people);
+      if (name) out.push({ start: m2.index, end: m2.index + m2[0].length, kind, name, ...person ? { person } : {} });
+    }
+    for (const m2 of text2.matchAll(SHOWN)) {
+      const { name, person } = split(m2[1], "::", people);
+      if (name) out.push({ start: m2.index, end: m2.index + m2[0].length, kind: "raw", name, ...person ? { person } : {} });
+    }
+    return out.sort((a, b2) => a.start - b2.start);
+  }
+  var mayHoldTags = (text2) => /\[img:|\{\{(?:img|image|asset|emotion|raw|path)::|data:,fornello-pic::/i.test(text2);
+
+  // src/assets/page-assets.ts
+  var cached2 = null;
+  function forgetPageAssets() {
+    cached2 = null;
+  }
+  var KEEP_MS = 3e4;
+  function chatAssets(chatId) {
+    if (cached2 && cached2.chatId === chatId && Date.now() - cached2.at < KEEP_MS) return cached2.people;
+    const people = chatCharacters(chatId).then(
+      (cast) => Promise.all(
+        cast.map(async (c) => {
+          return { id: c.id, name: c.name, assets: withSprites(cardAssets(c.data), await spriteListOf(c.id).catch(() => [])) };
+        })
+      )
+    );
+    cached2 = { chatId, at: Date.now(), people };
+    people.catch(() => cached2?.people === people && (cached2 = null));
+    return people;
+  }
+  function pick(people, name, person) {
+    const owner = person ? people.find((p2) => samePerson(person, p2.name)) : void 0;
+    const order = owner ? [owner, ...people.filter((p2) => p2 !== owner)] : people;
+    for (const p2 of order) {
+      const one = pickOne(findAssets(p2.assets, { name, ...person && p2 !== owner ? { person } : {} }), name);
+      if (one) return assetUrl(p2.id, one);
+    }
+    return null;
+  }
+  var escapeAttr = (s) => s.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;");
+  async function fillPageAssets(code, chatId = currentChatId()) {
+    if (!chatId || !mayHoldTags(code)) return code;
+    const people = await chatAssets(chatId).catch(() => []);
+    if (!people.some((p2) => p2.assets.length)) return code;
+    let out = code;
+    for (const tag of findTags(code, people.map((p2) => p2.name)).reverse()) {
+      const url = pick(people, tag.name, tag.person);
+      if (!url) continue;
+      const put = tag.kind === "raw" ? url : `<img src="${escapeAttr(url)}" alt="${escapeAttr(tag.name)}" style="max-width:100%">`;
+      out = out.slice(0, tag.start) + put + out.slice(tag.end);
+    }
+    return out;
+  }
+  async function chatAssetList(chatId = currentChatId()) {
+    if (!chatId) return [];
+    const people = await chatAssets(chatId).catch(() => []);
+    return people.flatMap((p2) => p2.assets.map((a) => ({ character: p2.name, name: a.name, url: assetUrl(p2.id, a), ...a.person ? { person: a.person } : {} })));
+  }
+  async function chatAssetUrl(name, person, chatId = currentChatId()) {
+    if (!chatId || !name.trim()) return "";
+    return pick(await chatAssets(chatId).catch(() => []), name.trim(), person) ?? "";
   }
 
   // src/host/screen-watch.ts
@@ -563,93 +1102,18 @@
 
   // src/api/quiet-edits.ts
   var edits = /* @__PURE__ */ new Map();
-  function markQuietEdit(messageId, text) {
-    edits.set(messageId, text);
+  function markQuietEdit(messageId, text2) {
+    edits.set(messageId, text2);
   }
   function clearQuietEdit(messageId) {
     edits.delete(messageId);
   }
-  function isQuietEdit(messageId, text) {
+  function isQuietEdit(messageId, text2) {
     const quiet = edits.get(messageId);
-    return quiet !== void 0 && quiet === text;
+    return quiet !== void 0 && quiet === text2;
   }
   function clearQuietEdits() {
     edits.clear();
-  }
-
-  // src/regex.ts
-  function parse(row) {
-    const applyMode = String(row.applyMode ?? (String(row.promptOnly) === "true" ? "prompt" : "display"));
-    const num = (v) => v === null || v === void 0 || v === "" ? null : Number(v);
-    return {
-      id: String(row.id),
-      name: String(row.name ?? ""),
-      order: Number(row.order ?? 0),
-      enabled: row.enabled === true || row.enabled === "true",
-      findRegex: String(row.findRegex ?? ""),
-      replaceString: String(row.replaceString ?? ""),
-      trimStrings: parseList(row.trimStrings),
-      placement: parseList(row.placement),
-      flags: String(row.flags ?? ""),
-      display: applyMode === "display" || applyMode === "both",
-      prompt: applyMode === "prompt" || applyMode === "both",
-      targetCharacterIds: parseList(row.targetCharacterIds),
-      targetPromptPresetIds: parseList(row.targetPromptPresetIds),
-      minDepth: num(row.minDepth),
-      maxDepth: num(row.maxDepth)
-    };
-  }
-  function expand(template, args, trim) {
-    const last = args[args.length - 1];
-    const groups = typeof last === "object" && last !== null ? last : void 0;
-    const count = args.length - (groups ? 3 : 2);
-    return template.replace(/\{\{match\}\}/gi, "$0").replace(/\$(\d+)|\$<([^>]+)>/g, (_2, n, name) => {
-      const value2 = n !== void 0 ? Number(n) < count ? args[Number(n)] : void 0 : groups?.[name];
-      if (typeof value2 !== "string" || !value2) return "";
-      let out = value2;
-      for (const t2 of trim) if (t2) out = out.split(t2).join("");
-      return out;
-    });
-  }
-  var cache = null;
-  function forgetRegexScripts() {
-    cache = null;
-  }
-  function regexScripts() {
-    if (!cache || Date.now() - cache.at > 3e4) {
-      const scripts = api("/regex-scripts").then((rows) => Array.isArray(rows) ? rows.map(parse) : []).catch(() => []);
-      cache = { at: Date.now(), scripts };
-    }
-    return cache.scripts;
-  }
-  function applyDisplayRegex(text, scripts, target, pageSources) {
-    return applyRegexScripts(text, scripts, { ...target, mode: "display" }, pageSources);
-  }
-  function applyRegexScripts(text, scripts, target, pageSources) {
-    const placement = target.role === "user" ? "user_input" : "ai_output";
-    let result = text;
-    for (const s of scripts) {
-      if (!s.enabled || !(target.mode === "display" ? s.display : s.prompt) || !s.findRegex || !s.placement.includes(placement)) continue;
-      if (s.targetCharacterIds.length && !s.targetCharacterIds.some((id) => target.chatCharacters.includes(id))) continue;
-      if (s.targetPromptPresetIds.length && target.presetId !== void 0 && !(target.presetId && s.targetPromptPresetIds.includes(target.presetId))) continue;
-      if (s.minDepth !== null && target.depth < s.minDepth) continue;
-      if (s.maxDepth !== null && target.depth > s.maxDepth) continue;
-      let re2;
-      try {
-        re2 = new RegExp(s.findRegex, s.flags);
-      } catch {
-        continue;
-      }
-      const names = target.names;
-      const macros = (t2) => names ? t2.replace(/\{\{user\}\}/gi, names.user).replace(/\{\{char\}\}/gi, names.char) : t2;
-      result = result.replace(re2, (...args) => {
-        const out = macros(expand(s.replaceString, args, s.trimStrings));
-        const matched = String(args[0]);
-        if (pageSources && out.includes("```") && text.includes(matched)) pageSources.push(matched);
-        return out;
-      });
-    }
-    return result;
   }
 
   // src/hash.ts
@@ -658,10 +1122,15 @@
     for (const byte of crypto.getRandomValues(new Uint8Array(length))) out += (byte % 36).toString(36);
     return out;
   }
-  function quickHash(text) {
+  function quickHash(text2) {
     let h3 = 0;
-    for (let i = 0; i < text.length; i++) h3 = Math.imul(31, h3) + text.charCodeAt(i) | 0;
-    return `${text.length}:${h3 >>> 0}`;
+    for (let i = 0; i < text2.length; i++) h3 = Math.imul(31, h3) + text2.charCodeAt(i) | 0;
+    return `${text2.length}:${h3 >>> 0}`;
+  }
+  function bytesHash(bytes2) {
+    let h3 = 2166136261;
+    for (let i = 0; i < bytes2.length; i++) h3 = Math.imul(h3 ^ bytes2[i], 16777619);
+    return `${bytes2.length.toString(36)}-${(h3 >>> 0).toString(36)}`;
   }
   var K = new Uint32Array([
     1116352408,
@@ -730,8 +1199,8 @@
     3329325298
   ]);
   var rotr = (x2, n) => x2 >>> n | x2 << 32 - n;
-  function sha256(text) {
-    const bytes2 = new TextEncoder().encode(text);
+  function sha256(text2) {
+    const bytes2 = new TextEncoder().encode(text2);
     const total = Math.ceil((bytes2.length + 9) / 64) * 64;
     const data = new Uint8Array(total);
     data.set(bytes2);
@@ -742,8 +1211,8 @@
     view.setUint32(total - 4, bits >>> 0);
     const h3 = new Uint32Array([1779033703, 3144134277, 1013904242, 2773480762, 1359893119, 2600822924, 528734635, 1541459225]);
     const w2 = new Uint32Array(64);
-    for (let at2 = 0; at2 < total; at2 += 64) {
-      for (let i = 0; i < 16; i++) w2[i] = view.getUint32(at2 + i * 4);
+    for (let at3 = 0; at3 < total; at3 += 64) {
+      for (let i = 0; i < 16; i++) w2[i] = view.getUint32(at3 + i * 4);
       for (let i = 16; i < 64; i++) {
         const s0 = rotr(w2[i - 15], 7) ^ rotr(w2[i - 15], 18) ^ w2[i - 15] >>> 3;
         const s1 = rotr(w2[i - 2], 17) ^ rotr(w2[i - 2], 19) ^ w2[i - 2] >>> 10;
@@ -776,17 +1245,17 @@
 
   // src/runtime/fences.ts
   var isDocument = (code) => /<html[\s>]/i.test(code) || /^\s*<!doctype\s+html/i.test(code);
-  function fence(lang2, code, closed, start2, end) {
+  function fence(lang2, code, closed2, start2, end) {
     const doc = isDocument(code);
-    return { lang: lang2, code, html: /^html?$/i.test(lang2) || !lang2 && doc, complete: closed || doc && /<\/html\s*>/i.test(code), closed, start: start2, end };
+    return { lang: lang2, code, html: /^html?$/i.test(lang2) || !lang2 && doc, complete: closed2 || doc && /<\/html\s*>/i.test(code), closed: closed2, start: start2, end };
   }
-  function lineFences(text) {
+  function lineFences(text2) {
     const out = [];
     let open2 = null;
-    let at2 = 0;
-    for (const raw of text.split("\n")) {
+    let at3 = 0;
+    for (const raw of text2.split("\n")) {
       const line = raw.replace(/\r$/, "");
-      const lineEnd = at2 + raw.length;
+      const lineEnd = at3 + raw.length;
       if (open2) {
         if (/^`{3,}\s*$/.test(line.trim())) {
           out.push(fence(open2.lang, open2.lines.join("\n"), true, open2.start, lineEnd));
@@ -799,39 +1268,39 @@
       } else {
         const lead = line.trimStart();
         const m2 = /^`{3,}(.*)$/.exec(lead);
-        if (m2 && !lead.slice(3).includes("`")) open2 = { lang: m2[1].trim(), indent: line.length - lead.length, start: at2, lines: [] };
+        if (m2 && !lead.slice(3).includes("`")) open2 = { lang: m2[1].trim(), indent: line.length - lead.length, start: at3, lines: [] };
       }
-      at2 = lineEnd + 1;
+      at3 = lineEnd + 1;
     }
-    if (open2) out.push(fence(open2.lang, open2.lines.join("\n"), false, open2.start, text.length));
+    if (open2) out.push(fence(open2.lang, open2.lines.join("\n"), false, open2.start, text2.length));
     return out;
   }
   var GONE_RE = /<script\b[\s\S]*?<\/script\s*>|<style\b[\s\S]*?<\/style\s*>|<!--[\s\S]*?-->/gi;
   var HTML_FENCE_RE = /(?<=^|\n)[^\S\n]*`{3,}([^\n<]*?)\r?\n([\s\S]*?)\r?\n[^\S\n]*`{3,}[^\S\n]*(?=\r?\n|$)/g;
   var OPEN_FENCE_RE = /(?<=^|\n)[^\S\n]*`{3,}([^\n<`]*?)\r?\n/;
-  function htmlFences(text) {
-    const seen2 = text.replace(GONE_RE, (m2) => " ".repeat(m2.length));
+  function htmlFences(text2) {
+    const seen2 = text2.replace(GONE_RE, (m2) => " ".repeat(m2.length));
     const out = [...seen2.matchAll(HTML_FENCE_RE)].map((m2) => {
       const start2 = m2.index;
       const end = start2 + m2[0].length;
       const codeStart = start2 + m2[0].indexOf("\n") + 1;
       const codeEnd = start2 + m2[0].lastIndexOf("\n");
-      return fence(m2[1].trim(), text.slice(codeStart, codeEnd).replace(/\r$/, ""), true, start2, end);
+      return fence(m2[1].trim(), text2.slice(codeStart, codeEnd).replace(/\r$/, ""), true, start2, end);
     });
     const from = out.at(-1)?.end ?? 0;
     const open2 = OPEN_FENCE_RE.exec(seen2.slice(from));
     if (open2) {
       const start2 = from + open2.index;
-      const tail = fence(open2[1].trim(), text.slice(start2 + open2[0].length).trimEnd(), false, start2, text.length);
+      const tail = fence(open2[1].trim(), text2.slice(start2 + open2[0].length).trimEnd(), false, start2, text2.length);
       if (tail.html && tail.complete) out.push(tail);
     }
     return out;
   }
-  function codeFences(text, rules = "lines") {
-    return rules === "html" ? htmlFences(text) : lineFences(text);
+  function codeFences(text2, rules = "lines") {
+    return rules === "html" ? htmlFences(text2) : lineFences(text2);
   }
-  function fenceRulesFor(el2, text) {
-    return el2.closest("[data-chat-mode]")?.getAttribute("data-chat-mode") === "roleplay" && /<[a-z][\w-]*\b[^<>]*>/i.test(text) ? "html" : "lines";
+  function fenceRulesFor(el2, text2) {
+    return el2.closest("[data-chat-mode]")?.getAttribute("data-chat-mode") === "roleplay" && /<[a-z][\w-]*\b[^<>]*>/i.test(text2) ? "html" : "lines";
   }
 
   // src/ui/blank-text.ts
@@ -847,21 +1316,21 @@
       const start2 = offset;
       const value2 = n.nodeValue ?? "";
       offset += value2.length;
-      let text = value2;
+      let text2 = value2;
       for (const t2 of [...spans].sort((a, b2) => b2.start - a.start)) {
         const a = Math.max(t2.start, start2) - start2;
         const b2 = Math.min(t2.end, offset) - start2;
-        if (a < b2) text = text.slice(0, a) + text.slice(b2);
+        if (a < b2) text2 = text2.slice(0, a) + text2.slice(b2);
       }
-      if (text !== value2) n.nodeValue = text;
+      if (text2 !== value2) n.nodeValue = text2;
     }
   }
-  function findLoose(full, pieces, skip = /\s/) {
-    const at2 = [];
+  function findLoose2(full, pieces, skip = /\s/) {
+    const at3 = [];
     let packed = "";
     for (let i = 0; i < full.length; i++) {
       if (skip.test(full[i])) continue;
-      at2.push(i);
+      at3.push(i);
       packed += full[i];
     }
     const out = [];
@@ -871,7 +1340,7 @@
       if (!needle) continue;
       const i = packed.indexOf(needle, from);
       if (i < 0) continue;
-      out.push({ start: at2[i], end: at2[i + needle.length - 1] + 1 });
+      out.push({ start: at3[i], end: at3[i + needle.length - 1] + 1 });
       from = i + needle.length;
     }
     return out;
@@ -903,44 +1372,206 @@
   }
 
   // src/api/commands/chat.ts
-  var toast = (s, text, kind = "info") => s.ui.toast(String(text ?? ""), kind);
+  var toast = (s, text2, kind = "info") => s.ui.toast(String(text2 ?? ""), kind);
   function chatCommands(s) {
     return {
-      showToast: cmd((text, kind) => toast(s, text, kind))
+      showToast: cmd((text2, kind) => toast(s, text2, kind))
     };
   }
 
-  // src/shared/react-bridge.ts
-  var cached = null;
-  function isQueryClient(v) {
-    return !!v && typeof v === "object" && typeof v.invalidateQueries === "function" && typeof v.getQueryCache === "function";
+  // src/host/generation-hold.ts
+  var MAX_HOLD = 5e3;
+  var MAX_READ_HOLD = 3e4;
+  var OWN_READ = "x-fornello-read";
+  var readHolds = /* @__PURE__ */ new Map();
+  function holdTrackerReads(chatId, until) {
+    const bounded = Promise.race([until, new Promise((resolve) => setTimeout(resolve, MAX_READ_HOLD))]);
+    readHolds.set(chatId, bounded);
+    void bounded.finally(() => readHolds.get(chatId) === bounded && readHolds.delete(chatId));
   }
-  function findQueryClient() {
-    if (cached) return cached;
-    const node = document.querySelector("#root *");
-    const fiberKey = node && Object.keys(node).find((k2) => k2.startsWith("__reactFiber$"));
-    for (let fiber = fiberKey ? node[fiberKey] : null; fiber; fiber = fiber.return ?? null) {
-      const client = fiber.memoizedProps?.client;
-      if (isQueryClient(client)) return cached = client;
+  function trackerRead(input2, init) {
+    const request = typeof input2 === "object" && "url" in input2 ? input2 : null;
+    const method = String(init?.method ?? request?.method ?? "GET").toUpperCase();
+    if (method !== "GET") return null;
+    const href = typeof input2 === "string" ? input2 : input2 instanceof URL ? input2.href : input2.url;
+    let path;
+    try {
+      path = new URL(href, location.href).pathname;
+    } catch {
+      return null;
+    }
+    const own = /^\/api\/chats\/([^/]+)\/game-state$/.exec(path);
+    if (!own) return null;
+    if (new Headers(init?.headers ?? request?.headers).has(OWN_READ)) return null;
+    return decodeURIComponent(own[1]);
+  }
+  var listeners2 = /* @__PURE__ */ new Map();
+  var endListeners = /* @__PURE__ */ new Set();
+  var trackerListeners = /* @__PURE__ */ new Set();
+  function onTrackerWrite(fn) {
+    trackerListeners.add(fn);
+    return () => trackerListeners.delete(fn);
+  }
+  function trackerWritten(chatId) {
+    for (const fn of [...trackerListeners]) {
+      try {
+        fn(chatId);
+      } catch (e) {
+        console.warn("[Fornello]", e);
+      }
+    }
+  }
+  function onGenerationStart(fn, wait = () => MAX_HOLD) {
+    listeners2.set(fn, () => Math.max(MAX_HOLD, wait()));
+    return () => listeners2.delete(fn);
+  }
+  function onGenerationEnd(fn) {
+    endListeners.add(fn);
+    return () => endListeners.delete(fn);
+  }
+  function ended(gen, ok) {
+    for (const fn of [...endListeners]) {
+      try {
+        fn(gen, ok);
+      } catch (e) {
+        console.warn("[Fornello]", e);
+      }
+    }
+    trackerWritten(gen.chatId);
+  }
+  function trackerWrite(input2, init) {
+    const href = typeof input2 === "string" ? input2 : input2 instanceof URL ? input2.href : input2.url;
+    const method = String(init?.method ?? (typeof input2 === "object" && "method" in input2 ? input2.method : "GET")).toUpperCase();
+    if (method === "GET") return null;
+    let path;
+    try {
+      path = new URL(href, location.href).pathname;
+    } catch {
+      return null;
+    }
+    const own = /^\/api\/chats\/([^/]+)\/(?:messages\/[^/]+\/)?game-state$/.exec(path);
+    if (own) return decodeURIComponent(own[1]);
+    if (path === "/api/generate/retry-agents" && typeof init?.body === "string") {
+      try {
+        const chatId = JSON.parse(init.body).chatId;
+        return typeof chatId === "string" ? chatId : null;
+      } catch {
+        return null;
+      }
     }
     return null;
   }
-  function refreshChatQueries(chatId) {
-    const client = findQueryClient();
-    if (!client) return false;
-    void client.invalidateQueries({ queryKey: ["chats", "messages", chatId] });
-    void client.invalidateQueries({ queryKey: ["chats", chatId] });
-    return true;
+  function afterTrackerWrite(chatId, res) {
+    if (!res.body || !res.headers.get("content-type")?.includes("event-stream")) {
+      queueMicrotask(() => trackerWritten(chatId));
+      return res;
+    }
+    const [mine, theirs] = res.body.tee();
+    void (async () => {
+      const reader = mine.getReader();
+      try {
+        while (!(await reader.read()).done) ;
+      } catch {
+      }
+      trackerWritten(chatId);
+    })();
+    return new Response(theirs, { status: res.status, statusText: res.statusText, headers: res.headers });
   }
-  function refreshQueries(keys) {
-    const client = findQueryClient();
-    if (!client) return false;
-    for (const queryKey of keys) void client.invalidateQueries({ queryKey });
-    return true;
+  function watchEnd(gen, res) {
+    if (!res.body) {
+      ended(gen, res.ok);
+      return res;
+    }
+    const [mine, theirs] = res.body.tee();
+    void (async () => {
+      const reader = mine.getReader();
+      const decoder = new TextDecoder();
+      let ok = res.ok;
+      try {
+        for (; ; ) {
+          const { done, value: value2 } = await reader.read();
+          if (done) break;
+          const text2 = decoder.decode(value2, { stream: true });
+          if (text2.includes('"type":"error"') || text2.includes('"type":"aborted"')) ok = false;
+        }
+      } catch {
+        ok = false;
+      }
+      ended(gen, ok);
+    })();
+    return new Response(theirs, { status: res.status, statusText: res.statusText, headers: res.headers });
+  }
+  function generationStart(input2, init) {
+    const href = typeof input2 === "string" ? input2 : input2 instanceof URL ? input2.href : input2.url;
+    let path;
+    try {
+      path = new URL(href, location.href).pathname;
+    } catch {
+      return null;
+    }
+    if (path !== "/api/generate" || typeof init?.body !== "string") return null;
+    let body;
+    try {
+      body = JSON.parse(init.body);
+    } catch {
+      return null;
+    }
+    if (typeof body.chatId !== "string") return null;
+    const kind = body.impersonate ? "impersonate" : body.regenerateMessageId ? "regenerate" : body.continueMessageId ? "continue" : "send";
+    const text2 = body.userMessage;
+    return {
+      kind,
+      chatId: body.chatId,
+      messageId: String(body.regenerateMessageId ?? body.continueMessageId ?? "") || null,
+      userMessage: typeof text2 === "string" ? text2 : null
+    };
+  }
+  async function hold(gen) {
+    if (!listeners2.size) return;
+    await Promise.all(
+      [...listeners2].map(async ([fn, wait]) => {
+        let done = false;
+        const run2 = Promise.resolve().then(() => fn(gen)).catch((e) => console.warn("[Fornello] before a reply:", e)).then(() => done = true);
+        await Promise.race([run2, new Promise((resolve) => setTimeout(resolve, wait()))]);
+        if (!done) gen.late = true;
+      })
+    );
+  }
+  function startGenerationHold() {
+    const previous = window.fetch;
+    let stopped = false;
+    const wrapped = async (input2, init) => {
+      if (stopped) return previous.call(window, input2, init);
+      const gen = generationStart(input2, init);
+      if (!gen) {
+        const read4 = trackerRead(input2, init);
+        const held = read4 ? readHolds.get(read4) : void 0;
+        if (held) await Promise.race([held.catch(() => void 0), new Promise((resolve) => setTimeout(resolve, MAX_READ_HOLD))]);
+        const tracked = trackerWrite(input2, init);
+        if (!tracked) return previous.call(window, input2, init);
+        return afterTrackerWrite(tracked, await previous.call(window, input2, init));
+      }
+      await hold(gen);
+      try {
+        return watchEnd(gen, await previous.call(window, input2, init));
+      } catch (e) {
+        ended(gen, false);
+        throw e;
+      }
+    };
+    window.fetch = wrapped;
+    return () => {
+      stopped = true;
+      if (window.fetch === wrapped) window.fetch = previous;
+      listeners2.clear();
+      endListeners.clear();
+      trackerListeners.clear();
+      readHolds.clear();
+    };
   }
 
   // src/api/marinara.ts
-  var enc2 = encodeURIComponent;
+  var enc4 = encodeURIComponent;
   var noChat = () => new Error(t("No chat is open.", "열려 있는 채팅이 없어요."));
   function refreshChat(chatId) {
     refreshChatQueries(chatId);
@@ -949,9 +1580,9 @@
     const chat = chatId ? await chatDetail(chatId).catch(() => null) : null;
     if (chat?.connectionId && chat.connectionId !== "random") return chat.connectionId;
     const list = await api("/connections");
-    const pick = list.find((c) => c.isDefault) ?? list[0];
-    if (!pick) throw new Error(t("No AI connection.", "AI 연결(Connection)이 없어요."));
-    return pick.id;
+    const pick2 = list.find((c) => c.isDefault) ?? list[0];
+    if (!pick2) throw new Error(t("No AI connection.", "AI 연결(Connection)이 없어요."));
+    return pick2.id;
   }
   function lightContext(cast, me2, messages, prompt, history, lore = []) {
     const card = (c) => [`# ${c.name}`, c.description && `Description: ${c.description}`, c.personality && `Personality: ${c.personality}`, c.scenario && `Scenario: ${c.scenario}`].filter(Boolean).join("\n");
@@ -963,13 +1594,17 @@ ${me2.description}` : ""}`,
       lore.length ? `# World info
 ${lore.map((l) => l.content).join("\n\n")}` : ""
     ].filter(Boolean).join("\n\n");
-    const prose = (text) => text.replace(/```[ \t]*html?\b[\s\S]*?(?:```|$)/gi, "[HTML page]").trim();
+    const prose = (text2) => text2.replace(/```[ \t]*html?\b[\s\S]*?(?:```|$)/gi, "[HTML page]").trim();
     const recent = history > 0 ? messages.filter((m2) => !m2.hidden && m2.role !== "system" && prose(m2.text)).slice(-history) : [];
     return [
       { role: "system", content: system },
       ...recent.map((m2) => ({ role: m2.role === "user" ? "user" : "assistant", content: cast.length > 1 || m2.role === "narrator" ? `${m2.name}: ${prose(m2.text)}` : prose(m2.text) })),
       { role: "user", content: prompt }
     ];
+  }
+  async function listConnections() {
+    const list = await api("/connections");
+    return list.map((c) => ({ id: c.id, name: String(c.name ?? c.id) }));
   }
   async function connectionIdFor(nameOrId) {
     const list = await api("/connections");
@@ -998,7 +1633,7 @@ ${lore.map((l) => l.content).join("\n\n")}` : ""
     }
     const reader = res.body.getReader();
     const decoder = new TextDecoder();
-    let text = "";
+    let text2 = "";
     let buffer = "";
     let result = null;
     for (; ; ) {
@@ -1018,21 +1653,21 @@ ${lore.map((l) => l.content).join("\n\n")}` : ""
           continue;
         }
         if (event.type === "token" && typeof event.data === "string") {
-          text += event.data;
-          onToken(text, event.data);
-        } else if (event.type === "result") result = String(event.data?.content ?? text);
+          text2 += event.data;
+          onToken(text2, event.data);
+        } else if (event.type === "result") result = String(event.data?.content ?? text2);
         else if (event.type === "error") throw new Error(String(event.data || "Generation failed"));
-        else if (event.type === "aborted") return result ?? text;
+        else if (event.type === "aborted") return result ?? text2;
       }
     }
-    return result ?? text;
+    return result ?? text2;
   }
   async function generate(input2, options) {
     const given = Array.isArray(input2) ? input2 : null;
     const prompt = given ? "" : String(input2 ?? "");
     if (given ? !given.length : !prompt.trim()) throw new Error(t("Empty request.", "요청이 비어 있음."));
     const light = !options.raw && !given && options.history !== void 0 && Number.isFinite(Number(options.history));
-    const connectionId = options.connection ? await connectionIdFor(options.connection) : void 0;
+    const connectionId = options.connectionId ?? (options.connection ? await connectionIdFor(options.connection) : void 0);
     const runId = options.runId;
     if (options.raw || light || given) {
       const chatId = options.chatId;
@@ -1074,60 +1709,60 @@ ${lore.map((l) => l.content).join("\n\n")}` : ""
     const res = await api(kind === "raw" ? "/generate/raw/abort" : "/generate/dryRun/abort", { method: "POST", body: { runId, ...chatId ? { chatId } : {} } }).catch(() => null);
     return res?.aborted === true;
   }
-  async function editMessage(messageId, text, { refresh = true } = {}, chatId) {
-    await api(`/chats/${enc2(chatId)}/messages/${enc2(messageId)}`, { method: "PATCH", body: { content: text } });
+  async function editMessage(messageId, text2, { refresh = true } = {}, chatId) {
+    await api(`/chats/${enc4(chatId)}/messages/${enc4(messageId)}`, { method: "PATCH", body: { content: text2 } });
     forgetChat(chatId);
     if (refresh) refreshChat(chatId);
   }
   var MARINARA_ROLE = { user: "user", char: "assistant", assistant: "assistant", narrator: "narrator", system: "narrator" };
-  async function addMessage(text, role, chatId, more = {}) {
+  async function addMessage(text2, role, chatId, more = {}) {
     const marinaraRole = MARINARA_ROLE[role] ?? "assistant";
     const characterId = marinaraRole === "assistant" ? more.characterId ?? parseList((await chatDetail(chatId)).characterIds)[0] ?? null : null;
-    const body = { role: marinaraRole, content: text, characterId, ...more.extra ? { extra: more.extra } : {}, ...more.createdAt ? { createdAt: more.createdAt } : {} };
-    const created = await api(`/chats/${enc2(chatId)}/messages`, { method: "POST", body });
+    const body = { role: marinaraRole, content: text2, characterId, ...more.extra ? { extra: more.extra } : {}, ...more.createdAt ? { createdAt: more.createdAt } : {} };
+    const created = await api(`/chats/${enc4(chatId)}/messages`, { method: "POST", body });
     forgetChat(chatId);
     refreshChat(chatId);
     return created?.id ?? null;
   }
   async function patchMessageExtra(chatId, messageId, extra, swipe) {
     const query = swipe === void 0 ? "" : `?swipeIndex=${swipe}`;
-    await api(`/chats/${enc2(chatId)}/messages/${enc2(messageId)}/extra${query}`, { method: "PATCH", body: extra });
+    await api(`/chats/${enc4(chatId)}/messages/${enc4(messageId)}/extra${query}`, { method: "PATCH", body: extra });
     forgetChat(chatId);
   }
   async function setMessagesHidden(chatId, messageIds, hidden) {
     if (!messageIds.length) return;
-    await api(`/chats/${enc2(chatId)}/messages/bulk-hidden`, { method: "PATCH", body: { messageIds, hidden } });
+    await api(`/chats/${enc4(chatId)}/messages/bulk-hidden`, { method: "PATCH", body: { messageIds, hidden } });
     forgetChat(chatId);
     refreshChat(chatId);
   }
   async function listSwipes(chatId, messageId) {
-    const list = await api(`/chats/${enc2(chatId)}/messages/${enc2(messageId)}/swipes`);
+    const list = await api(`/chats/${enc4(chatId)}/messages/${enc4(messageId)}/swipes`);
     return (list ?? []).map((w2) => ({ index: Number(w2.index), text: String(w2.content ?? ""), data: parseObject(parseObject(w2.extra)[MESSAGE_DATA]) }));
   }
   async function setActiveSwipe(chatId, messageId, index) {
-    await api(`/chats/${enc2(chatId)}/messages/${enc2(messageId)}/active-swipe`, { method: "PUT", body: { index } });
+    await api(`/chats/${enc4(chatId)}/messages/${enc4(messageId)}/active-swipe`, { method: "PUT", body: { index } });
     forgetChat(chatId);
     refreshChat(chatId);
   }
-  async function addSwipe(chatId, messageId, text, silent) {
-    const res = await api(`/chats/${enc2(chatId)}/messages/${enc2(messageId)}/swipes`, { method: "POST", body: { content: text, silent } });
+  async function addSwipe(chatId, messageId, text2, silent) {
+    const res = await api(`/chats/${enc4(chatId)}/messages/${enc4(messageId)}/swipes`, { method: "POST", body: { content: text2, silent } });
     forgetChat(chatId);
     refreshChat(chatId);
     return Number(res?.index ?? -1);
   }
   async function deleteSwipe(chatId, messageId, index) {
-    await api(`/chats/${enc2(chatId)}/messages/${enc2(messageId)}/swipes/${index}`, { method: "DELETE" });
+    await api(`/chats/${enc4(chatId)}/messages/${enc4(messageId)}/swipes/${index}`, { method: "DELETE" });
     forgetChat(chatId);
     refreshChat(chatId);
   }
   async function branchChat(chatId, messageId) {
-    const created = await api(`/chats/${enc2(chatId)}/branch`, { method: "POST", body: { upToMessageId: messageId } });
+    const created = await api(`/chats/${enc4(chatId)}/branch`, { method: "POST", body: { upToMessageId: messageId } });
     refreshQueries([["chats"]]);
     return created.id;
   }
   async function deleteMessages(messageIds, chatId) {
     if (!messageIds.length) return 0;
-    await api(`/chats/${enc2(chatId)}/messages/bulk-delete`, { method: "POST", body: { messageIds } });
+    await api(`/chats/${enc4(chatId)}/messages/bulk-delete`, { method: "POST", body: { messageIds } });
     forgetChat(chatId);
     refreshChat(chatId);
     return messageIds.length;
@@ -1161,12 +1796,12 @@ ${lore.map((l) => l.content).join("\n\n")}` : ""
     return { id: book.id, name: book.name };
   }
   async function chatLoreBookIfAny(chatId) {
-    const res = await api(`/lorebooks?chatId=${enc2(chatId)}`);
+    const res = await api(`/lorebooks?chatId=${enc4(chatId)}`);
     const own = Array.isArray(res) ? res : res.items ?? [];
     return own[0] ? { id: own[0].id, name: own[0].name } : null;
   }
   async function chatLoreBook(chatId) {
-    const res = await api(`/lorebooks?chatId=${enc2(chatId)}`);
+    const res = await api(`/lorebooks?chatId=${enc4(chatId)}`);
     const own = Array.isArray(res) ? res : res.items ?? [];
     if (own[0]) return { id: own[0].id, name: own[0].name };
     const name = `Chat Book ${(await chatDetail(chatId)).name ?? chatId}`.slice(0, 200);
@@ -1176,20 +1811,20 @@ ${lore.map((l) => l.content).join("\n\n")}` : ""
     return { id: book.id, name: book.name };
   }
   async function loreEntries(bookId) {
-    return api(`/lorebooks/${enc2(bookId)}/entries`);
+    return api(`/lorebooks/${enc4(bookId)}/entries`);
   }
   async function createLoreEntry(bookId, data) {
     forgetLore();
-    return api(`/lorebooks/${enc2(bookId)}/entries`, { method: "POST", body: { name: "New entry", ...data } });
+    return api(`/lorebooks/${enc4(bookId)}/entries`, { method: "POST", body: { name: "New entry", ...data } });
   }
   async function patchLoreEntry(bookId, entryId, patch) {
     forgetLore();
-    await api(`/lorebooks/${enc2(bookId)}/entries/${enc2(entryId)}`, { method: "PATCH", body: patch });
+    await api(`/lorebooks/${enc4(bookId)}/entries/${enc4(entryId)}`, { method: "PATCH", body: patch });
   }
   async function deleteLoreEntries(bookId, entryIds) {
     if (!entryIds.length) return 0;
     forgetLore();
-    const res = await api(`/lorebooks/${enc2(bookId)}/entries/bulk-delete`, { method: "POST", body: { entryIds } });
+    const res = await api(`/lorebooks/${enc4(bookId)}/entries/bulk-delete`, { method: "POST", body: { entryIds } });
     return res?.deleted ?? entryIds.length;
   }
   var TRACKER_JSON_FIELDS = ["presentCharacters", "playerStats", "personaStats", "worldCustomFields", "recentEvents", "manualOverrides", "fieldLocks"];
@@ -1201,8 +1836,14 @@ ${lore.map((l) => l.content).join("\n\n")}` : ""
     return raw;
   }
   async function trackerState(messageId, chatId) {
-    const path = messageId ? `/chats/${enc2(chatId)}/messages/${enc2(messageId)}/game-state` : `/chats/${enc2(chatId)}/game-state`;
+    const path = messageId ? `/chats/${enc4(chatId)}/messages/${enc4(messageId)}/game-state` : `/chats/${enc4(chatId)}/game-state`;
     return readTrackerState(await api(path).catch(() => null));
+  }
+  async function ownTrackerState(messageId, chatId) {
+    const path = messageId ? `/chats/${enc4(chatId)}/messages/${enc4(messageId)}/game-state` : `/chats/${enc4(chatId)}/game-state`;
+    const res = await (getMarinara().fetch ?? fetch)(`/api${path}`, { headers: { Accept: "application/json", [OWN_READ]: "1" }, credentials: "same-origin", cache: "no-store" }).catch(() => null);
+    if (!res?.ok) return null;
+    return readTrackerState(await res.json().catch(() => null));
   }
   async function patchTracker(state2, fields, chatId, manual = true) {
     const body = { manual };
@@ -1211,7 +1852,7 @@ ${lore.map((l) => l.content).join("\n\n")}` : ""
       body.messageId = state2.messageId;
       body.swipeIndex = state2.swipeIndex ?? 0;
     }
-    await api(`/chats/${enc2(chatId)}/game-state`, { method: "PATCH", body });
+    await api(`/chats/${enc4(chatId)}/game-state`, { method: "PATCH", body });
     refreshQueries([["chats", chatId], ["game-state"]]);
   }
 
@@ -1279,180 +1920,6 @@ ${lore.map((l) => l.content).join("\n\n")}` : ""
       genRaw: cmd({ costs: true }, (input2, options) => genRaw(s, input2, options)),
       stopMyGens: cmd(() => stopMyGens(s))
     };
-  }
-
-  // src/api/library.ts
-  var enc3 = encodeURIComponent;
-  var items = (res) => Array.isArray(res) ? res : res?.items ?? [];
-  var KEEP2 = 6e4;
-  var lists = /* @__PURE__ */ new Map();
-  function kept(key, load) {
-    const hit = lists.get(key);
-    if (hit && Date.now() - hit.at < KEEP2) return hit.value;
-    const value2 = load();
-    lists.set(key, { at: Date.now(), value: value2 });
-    value2.catch(() => lists.delete(key));
-    return value2;
-  }
-  function forgetLibrary(key) {
-    if (key) lists.delete(key);
-    else lists.clear();
-  }
-  function characterNames() {
-    return kept("characters", async () => {
-      const out = [];
-      for (let offset = 0; offset < 1e5; ) {
-        const page = await api(`/characters/catalog?limit=100&offset=${offset}`);
-        const got = items(page);
-        out.push(...got.map((c) => ({ id: String(c.id), name: String(c.name ?? "") })));
-        if (!page?.hasMore || !got.length) break;
-        offset += got.length;
-      }
-      return out;
-    });
-  }
-  async function characterData(id) {
-    const raw = await api(`/characters/${enc3(id)}`);
-    return parseObject(raw.data);
-  }
-  async function saveCharacter(id, data) {
-    await api(`/characters/${enc3(id)}`, { method: "PATCH", body: { data } });
-    forgetPeople();
-    forgetLibrary("characters");
-    refreshQueries([["characters"]]);
-  }
-  async function createCharacter(data) {
-    const made = await api("/characters", { method: "POST", body: { data } });
-    forgetLibrary("characters");
-    refreshQueries([["characters"]]);
-    return made.id;
-  }
-  async function deleteCharacter(id) {
-    await api(`/characters/${enc3(id)}`, { method: "DELETE" });
-    forgetPeople();
-    forgetLibrary("characters");
-    refreshQueries([["characters"]]);
-  }
-  async function importCharacter(file, filename) {
-    let res;
-    if (file instanceof Blob) {
-      const form = new FormData();
-      form.append("importEmbeddedLorebook", "true");
-      form.append("file", file, filename || "card.png");
-      const sent = await (getMarinara().fetch ?? fetch)("/api/import/st-character", { method: "POST", headers: { "x-marinara-csrf": "1" }, body: form, credentials: "same-origin" });
-      res = await sent.json().catch(() => ({ success: false, error: `${sent.status}` }));
-    } else {
-      res = await api("/import/st-character", { method: "POST", body: { ...file, importEmbeddedLorebook: true } });
-    }
-    if (res?.success === false) throw new Error(res.error ?? "Import failed");
-    forgetLibrary("characters");
-    refreshQueries([["characters"], ["lorebooks"], ["regex-scripts"]]);
-    forgetLore();
-    forgetRegexScripts();
-    return res?.characterId ?? res?.id ?? null;
-  }
-  var personaRow = (p2) => ({
-    id: String(p2.id),
-    name: String(p2.name ?? ""),
-    description: String(p2.description ?? ""),
-    personality: String(p2.personality ?? ""),
-    scenario: String(p2.scenario ?? ""),
-    backstory: String(p2.backstory ?? ""),
-    appearance: String(p2.appearance ?? ""),
-    comment: String(p2.comment ?? ""),
-    tags: parseList(p2.tags),
-    avatarPath: typeof p2.avatarPath === "string" && p2.avatarPath ? p2.avatarPath : null
-  });
-  function personaList() {
-    return kept("personas", async () => items(await api("/characters/personas/list")).map(personaRow));
-  }
-  async function savePersona(id, fields) {
-    await api(`/characters/personas/${enc3(id)}`, { method: "PATCH", body: fields });
-    forgetPeople();
-    forgetLibrary("personas");
-    refreshQueries([["personas"]]);
-  }
-  async function createPersona(fields) {
-    const made = await api("/characters/personas", { method: "POST", body: fields });
-    forgetLibrary("personas");
-    refreshQueries([["personas"]]);
-    return made.id;
-  }
-  async function deletePersona(id) {
-    await api(`/characters/personas/${enc3(id)}`, { method: "DELETE" });
-    forgetPeople();
-    forgetLibrary("personas");
-    refreshQueries([["personas"]]);
-  }
-  async function setChatPersona(chatId, personaId) {
-    await api(`/chats/${enc3(chatId)}`, { method: "PATCH", body: { personaId } });
-    forgetChat(chatId);
-    forgetPeople();
-    refreshQueries([["chats", "detail", chatId]]);
-  }
-  async function bookList() {
-    return items(await api("/lorebooks")).map((b2) => ({
-      id: String(b2.id),
-      name: String(b2.name ?? ""),
-      characterIds: parseList(b2.characterIds),
-      personaIds: parseList(b2.personaIds),
-      chatId: typeof b2.chatId === "string" && b2.chatId ? b2.chatId : null,
-      isGlobal: b2.isGlobal === true || b2.isGlobal === "true",
-      enabled: b2.enabled !== false && b2.enabled !== "false",
-      category: String(b2.category ?? "")
-    }));
-  }
-  async function patchBook(id, patch) {
-    await api(`/lorebooks/${enc3(id)}`, { method: "PATCH", body: patch });
-    forgetLore();
-    refreshQueries([["lorebooks"]]);
-  }
-  async function deleteBook(id) {
-    await api(`/lorebooks/${enc3(id)}`, { method: "DELETE" });
-    forgetLore();
-    refreshQueries([["lorebooks"]]);
-  }
-  async function importBook(json2, filename) {
-    const res = await api("/import/st-lorebook", { method: "POST", body: { ...json2, __filename: filename } });
-    if (res?.success === false) throw new Error(res.error ?? "Import failed");
-    forgetLore();
-    refreshQueries([["lorebooks"]]);
-    return res?.lorebookId ?? res?.id ?? null;
-  }
-  async function chatBookIds(chatId) {
-    return parseList(parseObject((await chatDetail(chatId)).metadata).activeLorebookIds);
-  }
-  async function setChatBookIds(chatId, ids) {
-    await api(`/chats/${enc3(chatId)}/metadata`, { method: "PATCH", body: { activeLorebookIds: ids } });
-    forgetDetail(chatId);
-    forgetLore();
-    refreshQueries([["chats", "detail", chatId], ["lorebooks"]]);
-  }
-  function presetList() {
-    return kept("presets", async () => items(await api("/prompts")).map((p2) => ({ id: String(p2.id), name: String(p2.name ?? "") })));
-  }
-  async function createRegex(fields) {
-    const made = await api("/regex-scripts", { method: "POST", body: fields });
-    forgetRegexScripts();
-    refreshQueries([["regex-scripts"]]);
-    return made.id;
-  }
-  async function patchRegex(id, fields) {
-    await api(`/regex-scripts/${enc3(id)}`, { method: "PATCH", body: fields });
-    forgetRegexScripts();
-    refreshQueries([["regex-scripts"]]);
-  }
-  async function deleteRegex(id) {
-    await api(`/regex-scripts/${enc3(id)}`, { method: "DELETE" });
-    forgetRegexScripts();
-    refreshQueries([["regex-scripts"]]);
-  }
-  function usableFace(face) {
-    if (!face) return false;
-    return typeof face.url === "string" && typeof face.family === "string";
-  }
-  function serverFonts() {
-    return kept("fonts", () => api("/fonts").then((list) => Array.isArray(list) ? list.filter(usableFace) : []));
   }
 
   // src/api/commands/lore.ts
@@ -1548,14 +2015,14 @@ ${lore.map((l) => l.content).join("\n\n")}` : ""
     for (const input2 of Array.isArray(entries) ? entries : [entries]) {
       if (!input2 || typeof input2 !== "object") continue;
       const patch = lorePatch(input2);
-      const same = (input2.id !== void 0 ? existing.find((e) => e.id === String(input2.id) && !kept2.has(e.id)) : void 0) ?? (patch.name ? existing.find((e) => e.name === patch.name && !kept2.has(e.id)) : void 0);
-      if (same) {
-        await patchLoreEntry(target.id, same.id, patch);
-        kept2.add(same.id);
+      const same3 = (input2.id !== void 0 ? existing.find((e) => e.id === String(input2.id) && !kept2.has(e.id)) : void 0) ?? (patch.name ? existing.find((e) => e.name === patch.name && !kept2.has(e.id)) : void 0);
+      if (same3) {
+        await patchLoreEntry(target.id, same3.id, patch);
+        kept2.add(same3.id);
       } else {
-        const made = await createLoreEntry(target.id, patch);
-        existing.push(made);
-        kept2.add(made.id);
+        const made2 = await createLoreEntry(target.id, patch);
+        existing.push(made2);
+        kept2.add(made2.id);
       }
       count++;
     }
@@ -1675,20 +2142,20 @@ ${lore.map((l) => l.content).join("\n\n")}` : ""
   }
   function pathParts(path) {
     if (Array.isArray(path)) return path.map(String);
-    const text = String(path);
-    if (text.startsWith("/")) return text.slice(1).split("/").map((p2) => p2.replace(/~1/g, "/").replace(/~0/g, "~"));
+    const text2 = String(path);
+    if (text2.startsWith("/")) return text2.slice(1).split("/").map((p2) => p2.replace(/~1/g, "/").replace(/~0/g, "~"));
     const parts = [];
     const re2 = /\[(?:"([^"]*)"|'([^']*)'|([^\]]*))\]|([^.[\]]+)/g;
-    for (let m2 = re2.exec(text); m2; m2 = re2.exec(text)) parts.push(m2[1] ?? m2[2] ?? m2[3] ?? m2[4]);
+    for (let m2 = re2.exec(text2); m2; m2 = re2.exec(text2)) parts.push(m2[1] ?? m2[2] ?? m2[3] ?? m2[4]);
     return parts.filter((p2) => p2 !== "");
   }
   function getPath(obj3, path) {
-    let at2 = obj3;
+    let at3 = obj3;
     for (const part of pathParts(path)) {
-      if (at2 === null || typeof at2 !== "object") return void 0;
-      at2 = at2[part];
+      if (at3 === null || typeof at3 !== "object") return void 0;
+      at3 = at3[part];
     }
-    return at2;
+    return at3;
   }
   function deletePath(obj3, path) {
     const parts = pathParts(path);
@@ -1718,21 +2185,21 @@ ${lore.map((l) => l.content).join("\n\n")}` : ""
     tags: "tags"
   };
   function charItem(s, id, data) {
-    const text = (k2) => String(data[k2] ?? "");
+    const text2 = (k2) => String(data[k2] ?? "");
     return {
       id,
-      name: text("name"),
-      description: text("description"),
-      personality: text("personality"),
-      scenario: text("scenario"),
-      firstMessage: text("first_mes"),
+      name: text2("name"),
+      description: text2("description"),
+      personality: text2("personality"),
+      scenario: text2("scenario"),
+      firstMessage: text2("first_mes"),
       greetings: parseList(data.alternate_greetings),
-      example: text("mes_example"),
-      systemPrompt: text("system_prompt"),
-      postHistory: text("post_history_instructions"),
-      creatorNotes: text("creator_notes"),
-      creator: text("creator"),
-      version: text("character_version"),
+      example: text2("mes_example"),
+      systemPrompt: text2("system_prompt"),
+      postHistory: text2("post_history_instructions"),
+      creatorNotes: text2("creator_notes"),
+      creator: text2("creator"),
+      version: text2("character_version"),
       tags: parseList(data.tags),
       books: ownFirst(s.world.books.filter((b2) => b2.characterIds?.includes(id))).map((b2) => b2.name),
       data: structuredClone(data)
@@ -1955,10 +2422,10 @@ ${lore.map((l) => l.content).join("\n\n")}` : ""
     for (const input2 of Array.isArray(items2) ? items2 : [items2]) {
       if (!input2 || typeof input2 !== "object") continue;
       const patch = regexPatch(s, input2);
-      const same = (input2.id !== void 0 ? all.find((r) => r.id === String(input2.id)) : void 0) ?? (patch.name ? all.find((r) => r.name === patch.name && !kept2.has(r.id)) : void 0);
-      if (same) {
-        await patchRegex(same.id, patch);
-        kept2.add(same.id);
+      const same3 = (input2.id !== void 0 ? all.find((r) => r.id === String(input2.id)) : void 0) ?? (patch.name ? all.find((r) => r.name === patch.name && !kept2.has(r.id)) : void 0);
+      if (same3) {
+        await patchRegex(same3.id, patch);
+        kept2.add(same3.id);
       } else {
         if (!patch.findRegex) throw new Error(t("A regex needs find.", "정규식에 find가 필요함."));
         if (scope.char !== void 0 && patch.targetCharacterIds === void 0) patch.targetCharacterIds = [findChar(s, scope.char).id];
@@ -1985,8 +2452,8 @@ ${lore.map((l) => l.content).join("\n\n")}` : ""
     await s.freshWorld();
     return gone.length;
   }
-  function applyRegex(s, text, options = {}) {
-    return applyRegexScripts(String(text ?? ""), s.world.regex, {
+  function applyRegex(s, text2, options = {}) {
+    return applyRegexScripts(String(text2 ?? ""), s.world.regex, {
       role: options.on === "user_input" ? "user" : "char",
       depth: Math.max(0, Number(options.depth ?? 0) || 0),
       chatCharacters: s.cast.map((c) => c.id),
@@ -2000,171 +2467,12 @@ ${lore.map((l) => l.content).join("\n\n")}` : ""
       getRegex: cmd((scope) => getRegex(s, scope)),
       setRegex: cmd({ writes: true }, (items2, options) => setRegex(s, items2, options)),
       delRegex: cmd({ writes: true }, (which) => delRegex(s, which)),
-      applyRegex: cmd((text, options) => applyRegex(s, text, options))
-    };
-  }
-
-  // src/host/generation-hold.ts
-  var MAX_HOLD = 5e3;
-  var listeners2 = /* @__PURE__ */ new Set();
-  var endListeners = /* @__PURE__ */ new Set();
-  var trackerListeners = /* @__PURE__ */ new Set();
-  function onTrackerWrite(fn) {
-    trackerListeners.add(fn);
-    return () => trackerListeners.delete(fn);
-  }
-  function trackerWritten(chatId) {
-    for (const fn of [...trackerListeners]) {
-      try {
-        fn(chatId);
-      } catch (e) {
-        console.warn("[Fornello]", e);
-      }
-    }
-  }
-  function onGenerationStart(fn) {
-    listeners2.add(fn);
-    return () => listeners2.delete(fn);
-  }
-  function onGenerationEnd(fn) {
-    endListeners.add(fn);
-    return () => endListeners.delete(fn);
-  }
-  function ended(gen, ok) {
-    for (const fn of [...endListeners]) {
-      try {
-        fn(gen, ok);
-      } catch (e) {
-        console.warn("[Fornello]", e);
-      }
-    }
-    trackerWritten(gen.chatId);
-  }
-  function trackerWrite(input2, init) {
-    const href = typeof input2 === "string" ? input2 : input2 instanceof URL ? input2.href : input2.url;
-    const method = String(init?.method ?? (typeof input2 === "object" && "method" in input2 ? input2.method : "GET")).toUpperCase();
-    if (method === "GET") return null;
-    let path;
-    try {
-      path = new URL(href, location.href).pathname;
-    } catch {
-      return null;
-    }
-    const own = /^\/api\/chats\/([^/]+)\/(?:messages\/[^/]+\/)?game-state$/.exec(path);
-    if (own) return decodeURIComponent(own[1]);
-    if (path === "/api/generate/retry-agents" && typeof init?.body === "string") {
-      try {
-        const chatId = JSON.parse(init.body).chatId;
-        return typeof chatId === "string" ? chatId : null;
-      } catch {
-        return null;
-      }
-    }
-    return null;
-  }
-  function afterTrackerWrite(chatId, res) {
-    if (!res.body || !res.headers.get("content-type")?.includes("event-stream")) {
-      queueMicrotask(() => trackerWritten(chatId));
-      return res;
-    }
-    const [mine, theirs] = res.body.tee();
-    void (async () => {
-      const reader = mine.getReader();
-      try {
-        while (!(await reader.read()).done) ;
-      } catch {
-      }
-      trackerWritten(chatId);
-    })();
-    return new Response(theirs, { status: res.status, statusText: res.statusText, headers: res.headers });
-  }
-  function watchEnd(gen, res) {
-    if (!res.body) {
-      ended(gen, res.ok);
-      return res;
-    }
-    const [mine, theirs] = res.body.tee();
-    void (async () => {
-      const reader = mine.getReader();
-      const decoder = new TextDecoder();
-      let ok = res.ok;
-      try {
-        for (; ; ) {
-          const { done, value: value2 } = await reader.read();
-          if (done) break;
-          const text = decoder.decode(value2, { stream: true });
-          if (text.includes('"type":"error"') || text.includes('"type":"aborted"')) ok = false;
-        }
-      } catch {
-        ok = false;
-      }
-      ended(gen, ok);
-    })();
-    return new Response(theirs, { status: res.status, statusText: res.statusText, headers: res.headers });
-  }
-  function generationStart(input2, init) {
-    const href = typeof input2 === "string" ? input2 : input2 instanceof URL ? input2.href : input2.url;
-    let path;
-    try {
-      path = new URL(href, location.href).pathname;
-    } catch {
-      return null;
-    }
-    if (path !== "/api/generate" || typeof init?.body !== "string") return null;
-    let body;
-    try {
-      body = JSON.parse(init.body);
-    } catch {
-      return null;
-    }
-    if (typeof body.chatId !== "string") return null;
-    const kind = body.impersonate ? "impersonate" : body.regenerateMessageId ? "regenerate" : body.continueMessageId ? "continue" : "send";
-    const text = body.userMessage;
-    return {
-      kind,
-      chatId: body.chatId,
-      messageId: String(body.regenerateMessageId ?? body.continueMessageId ?? "") || null,
-      userMessage: typeof text === "string" ? text : null
-    };
-  }
-  async function hold(gen) {
-    if (!listeners2.size) return;
-    const all = Promise.allSettled([...listeners2].map(async (fn) => fn(gen))).then((results) => {
-      for (const r of results) if (r.status === "rejected") console.warn("[Fornello] before a reply:", r.reason);
-    });
-    await Promise.race([all, new Promise((resolve) => setTimeout(resolve, MAX_HOLD))]);
-  }
-  function startGenerationHold() {
-    const previous = window.fetch;
-    let stopped = false;
-    const wrapped = async (input2, init) => {
-      if (stopped) return previous.call(window, input2, init);
-      const gen = generationStart(input2, init);
-      if (!gen) {
-        const tracked = trackerWrite(input2, init);
-        if (!tracked) return previous.call(window, input2, init);
-        return afterTrackerWrite(tracked, await previous.call(window, input2, init));
-      }
-      await hold(gen);
-      try {
-        return watchEnd(gen, await previous.call(window, input2, init));
-      } catch (e) {
-        ended(gen, false);
-        throw e;
-      }
-    };
-    window.fetch = wrapped;
-    return () => {
-      stopped = true;
-      if (window.fetch === wrapped) window.fetch = previous;
-      listeners2.clear();
-      endListeners.clear();
-      trackerListeners.clear();
+      applyRegex: cmd((text2, options) => applyRegex(s, text2, options))
     };
   }
 
   // src/api/features.ts
-  var enc4 = encodeURIComponent;
+  var enc5 = encodeURIComponent;
   var send = (path, init) => (getMarinara().fetch ?? fetch)(`/api${path}`, { credentials: "same-origin", cache: "no-store", ...init });
   async function agentList() {
     const [built, configs] = await Promise.all([
@@ -2225,31 +2533,31 @@ ${lore.map((l) => l.content).join("\n\n")}` : ""
   }
   async function agentMemory(type, chatId) {
     try {
-      return parseObject((await api(`/agents/memory/${enc4(type)}/${enc4(chatId)}`)).memory);
+      return parseObject((await api(`/agents/memory/${enc5(type)}/${enc5(chatId)}`)).memory);
     } catch (e) {
       if (e.status === 404) return {};
       throw e;
     }
   }
   async function patchAgentMemory(type, chatId, patch) {
-    const res = await api(`/agents/memory/${enc4(type)}/${enc4(chatId)}`, { method: "PATCH", body: { patch } });
+    const res = await api(`/agents/memory/${enc5(type)}/${enc5(chatId)}`, { method: "PATCH", body: { patch } });
     refreshQueries([["agents"]]);
     return parseObject(res?.memory);
   }
   async function clearAgentMemory(type, chatId) {
-    await api(`/agents/memory/${enc4(type)}/${enc4(chatId)}`, { method: "DELETE" });
+    await api(`/agents/memory/${enc5(type)}/${enc5(chatId)}`, { method: "DELETE" });
     refreshQueries([["agents"]]);
   }
   async function generateImage(chatId, prompt, title) {
-    const image = await api(`/gallery/${enc4(chatId)}/generate-image`, { method: "POST", body: { prompt, ...title ? { title } : {} } });
+    const image = await api(`/gallery/${enc5(chatId)}/generate-image`, { method: "POST", body: { prompt, ...title ? { title } : {} } });
     refreshQueries([["gallery"], ["chat-gallery"]]);
     return { url: String(image?.url ?? ""), id: String(image?.id ?? "") };
   }
-  async function speech(text, voice) {
+  async function speech(text2, voice) {
     const res = await send("/tts/speak", {
       method: "POST",
       headers: { "Content-Type": "application/json", "x-marinara-csrf": "1" },
-      body: JSON.stringify({ text: text.slice(0, 4096), ...voice ? { voice } : {} })
+      body: JSON.stringify({ text: text2.slice(0, 4096), ...voice ? { voice } : {} })
     });
     if (!res.ok) {
       const body = parseObject(await res.text().catch(() => ""));
@@ -2264,13 +2572,13 @@ ${lore.map((l) => l.content).join("\n\n")}` : ""
     return list.map((e) => ({ id: String(e.id), title: String(e.title ?? ""), text: String(e.content ?? ""), on: e.enabled !== false }));
   }
   async function makeChatSummary(chatId, last) {
-    const res = await api(`/chats/${enc4(chatId)}/generate-summary`, { method: "POST", body: last ? { contextSize: last } : {} });
+    const res = await api(`/chats/${enc5(chatId)}/generate-summary`, { method: "POST", body: last ? { contextSize: last } : {} });
     forgetDetail(chatId);
     refreshQueries([["chats", "detail", chatId]]);
     return String(res?.summary ?? "");
   }
   async function editSummaries(chatId, change) {
-    await api(`/chats/${enc4(chatId)}/summary-entries`, { method: "PATCH", body: change });
+    await api(`/chats/${enc5(chatId)}/summary-entries`, { method: "PATCH", body: change });
     forgetDetail(chatId);
     refreshQueries([["chats", "detail", chatId]]);
   }
@@ -2313,8 +2621,8 @@ ${lore.map((l) => l.content).join("\n\n")}` : ""
   async function genImage(s, prompt, options = {}) {
     return (await generateImage(s.here(), String(prompt ?? ""), options.title)).url;
   }
-  async function speak(s, text, options = {}) {
-    const audio = new Audio(URL.createObjectURL(await speech(String(text ?? ""), options.voice)));
+  async function speak(s, text2, options = {}) {
+    const audio = new Audio(URL.createObjectURL(await speech(String(text2 ?? ""), options.voice)));
     speaking.get(s)?.pause();
     speaking.set(s, audio);
     return new Promise((resolve) => {
@@ -2336,11 +2644,55 @@ ${lore.map((l) => l.content).join("\n\n")}` : ""
     s.onDispose(() => speaking.get(s)?.pause());
     return {
       genImage: cmd({ writes: true, paid: true }, (prompt, options) => genImage(s, prompt, options)),
-      speak: cmd({ costs: true }, (text, options) => speak(s, text, options)),
+      speak: cmd({ costs: true }, (text2, options) => speak(s, text2, options)),
       stopSpeaking: cmd(() => {
         speaking.get(s)?.pause();
         return true;
       })
+    };
+  }
+
+  // src/api/commands/assets.ts
+  var read = /* @__PURE__ */ new WeakMap();
+  function assetsOf(s, who) {
+    const c = findChar(s, who);
+    let mine = read.get(s);
+    if (!mine) read.set(s, mine = /* @__PURE__ */ new Map());
+    let p2 = mine.get(c.id);
+    if (!p2) {
+      p2 = (async () => {
+        const inChat = s.cast.find((x2) => x2.id === c.id);
+        const listed = cardAssets(inChat ? inChat.data : await characterData(c.id));
+        return { id: c.id, assets: withSprites(listed, await spriteListOf(c.id)) };
+      })();
+      mine.set(c.id, p2);
+      const tried = p2;
+      p2.catch(() => mine.get(c.id) === tried && mine.delete(c.id));
+    }
+    return p2;
+  }
+  async function getAssets(s, who) {
+    const { id, assets } = await assetsOf(s, who);
+    return assets.map((a) => ({
+      name: a.name,
+      url: assetUrl(id, a),
+      kind: a.place === "sprite" ? "sprite" : "picture",
+      ...a.person ? { person: a.person } : {},
+      ...a.words?.length ? { words: [...a.words] } : {}
+    }));
+  }
+  async function getAsset(s, name, options = {}) {
+    const wanted = String(name ?? "").trim();
+    if (!wanted) return "";
+    const { id, assets } = await assetsOf(s, options.char);
+    const found = findAssets(assets, { name: wanted, ...options.person ? { person: String(options.person) } : {} });
+    const one = pickOne(found, wanted);
+    return one ? assetUrl(id, one) : "";
+  }
+  function assetCommands(s) {
+    return {
+      getAssets: cmd((who) => getAssets(s, who)),
+      getAsset: cmd((name, options) => getAsset(s, name, options))
     };
   }
 
@@ -2350,8 +2702,8 @@ ${lore.map((l) => l.content).join("\n\n")}` : ""
     const chatId = s.here();
     const before = new Set((await summaryEntries(chatId)).map((e) => e.id));
     const all = await makeChatSummary(chatId, Number(options.last) || void 0);
-    const made = (await summaryEntries(chatId)).filter((e) => !before.has(e.id));
-    return made.length ? made.map((e) => e.text).join("\n\n") : all;
+    const made2 = (await summaryEntries(chatId)).filter((e) => !before.has(e.id));
+    return made2.length ? made2.map((e) => e.text).join("\n\n") : all;
   }
   async function setSummary(s, items2) {
     const chatId = s.here();
@@ -2590,7 +2942,7 @@ ${s.code}`).join("\n\n"));
   var newScriptId = () => `s${randomPart()}`;
 
   // src/api/chat-data.ts
-  var enc5 = encodeURIComponent;
+  var enc6 = encodeURIComponent;
   var MARINARA_NAME = /^[A-Za-z_]\w{0,63}$/;
   var MARINARA_MAX = 1e4;
   var CHAT_KEY = "fornello";
@@ -2602,7 +2954,9 @@ ${s.code}`).join("\n\n"));
       meta: { ...parseObject(own.meta) },
       scripts: normalizeLibrary(own.scripts),
       instructions: Object.fromEntries(Object.entries(parseObject(own.instructions)).filter((e) => typeof e[1] === "string" && !!e[1].trim())),
-      components: Object.fromEntries(Object.entries(parseObject(own.components)).filter((e) => typeof e[1] === "boolean"))
+      components: Object.fromEntries(Object.entries(parseObject(own.components)).filter((e) => typeof e[1] === "boolean")),
+      storyTracker: Array.isArray(own.storyTracker) ? own.storyTracker.filter((n) => typeof n === "string") : [],
+      storyVars: Array.isArray(own.storyVars) ? own.storyVars.filter((n) => typeof n === "string") : []
     };
   }
   async function readChatData(chatId) {
@@ -2610,14 +2964,28 @@ ${s.code}`).join("\n\n"));
   }
   var chatQueues = /* @__PURE__ */ new Map();
   function updateChatData(chatId, change) {
-    const run = (chatQueues.get(chatId) ?? Promise.resolve()).then(async () => {
+    const run2 = (chatQueues.get(chatId) ?? Promise.resolve()).then(async () => {
       forgetDetail(chatId);
       const next2 = change(chatDataOf(await chatDetail(chatId)));
-      await api(`/chats/${enc5(chatId)}/metadata`, { method: "PATCH", body: { [CHAT_KEY]: next2 } });
+      await api(`/chats/${enc6(chatId)}/metadata`, { method: "PATCH", body: { [CHAT_KEY]: next2 } });
       forgetDetail(chatId);
     });
-    chatQueues.set(chatId, run.catch(() => void 0));
-    return run;
+    chatQueues.set(chatId, run2.catch(() => void 0));
+    return run2;
+  }
+  async function macroVariables(chatId) {
+    return parseObject(parseObject((await chatDetail(chatId)).metadata).macroVariables);
+  }
+  async function patchMacroVariables(chatId, changes) {
+    if (!Object.keys(changes).length) return;
+    try {
+      await api(`/chats/${enc6(chatId)}/metadata`, { method: "PATCH", body: { macroVariables: changes } });
+    } catch (e) {
+      if (e instanceof Error && /cannot hold more than/i.test(e.message)) throw new Error(t("This chat has too many variables (Marinara keeps 500): Fornello's weren't written.", "이 채팅의 변수가 너무 많아요(마리나라는 500개까지예요). Fornello의 변수를 쓰지 못했어요."), { cause: e });
+      throw e;
+    } finally {
+      forgetChat(chatId);
+    }
   }
   async function readVariables(chatId) {
     const detail = await chatDetail(chatId);
@@ -2646,18 +3014,18 @@ ${s.code}`).join("\n\n"));
         dropLocal.add(k2);
         continue;
       }
-      const text = asText(v);
-      if (MARINARA_NAME.test(k2) && text.length <= MARINARA_MAX) {
-        toMarinara[k2] = text;
+      const text2 = asText(v);
+      if (MARINARA_NAME.test(k2) && text2.length <= MARINARA_MAX) {
+        toMarinara[k2] = text2;
         dropLocal.add(k2);
       } else {
-        setLocal[k2] = text;
+        setLocal[k2] = text2;
         if (MARINARA_NAME.test(k2)) toMarinara[k2] = null;
       }
     }
     for (let tries = 0; Object.keys(toMarinara).length && tries < 50; tries++) {
       try {
-        await api(`/chats/${enc5(chatId)}/metadata`, { method: "PATCH", body: { macroVariables: toMarinara } });
+        await api(`/chats/${enc6(chatId)}/metadata`, { method: "PATCH", body: { macroVariables: toMarinara } });
         forgetChat(chatId);
         break;
       } catch (e) {
@@ -2760,7 +3128,7 @@ ${s.code}`).join("\n\n"));
       // getScripts("global" | "char" | "chat") / setScripts([...], scope)
       getScripts: cmd((scope) => getScripts(s, scope)),
       setScripts: cmd({ writes: true }, (items2, scope) => setScripts(s, items2, scope)),
-      // JS-Slash-Runner's names (type "global" | "character"; "preset" has none here)
+      // the SillyTavern names (type "global" | "character"; "preset" has none here)
       getScriptTrees: cmd((option) => toScriptTrees(getScripts(s, option))),
       replaceScriptTrees: cmd({ writes: true }, (trees, option) => setScripts(s, trees, option)),
       updateScriptTreesWith: cmd({ writes: true }, async (updater, option) => {
@@ -2795,9 +3163,9 @@ ${s.code}`).join("\n\n"));
     const buttons = [...container.querySelectorAll("button")];
     return buttons.find((b2) => /send|보내|전송/i.test(`${b2.getAttribute("aria-label") ?? ""} ${b2.title}`)) ?? buttons.find((b2) => b2.querySelector("svg.lucide-send, svg.lucide-send-horizontal, svg.lucide-arrow-up")) ?? null;
   }
-  function setComposerText(textarea, text) {
+  function setComposerText(textarea, text2) {
     const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")?.set;
-    setter?.call(textarea, text);
+    setter?.call(textarea, text2);
     textarea.dispatchEvent(new Event("input", { bubbles: true }));
   }
   function isGenerating(composer) {
@@ -3031,10 +3399,10 @@ ${s.code}`).join("\n\n"));
 
   // src/api/commands/replies.ts
   var counter = 0;
-  async function injectFor(s, text, options = {}) {
+  async function injectFor(s, text2, options = {}) {
     const chatId = s.here();
     const id = options.id ? String(options.id) : `${Date.now().toString(36)}-${++counter}`;
-    const injection = { id, content: String(text ?? ""), position: options.position, depth: options.depth, role: options.role, once: options.once };
+    const injection = { id, content: String(text2 ?? ""), position: options.position, depth: options.depth, role: options.role, once: options.once };
     await inject(chatId, injection);
     if (!options.once) s.onDispose(() => void uninject(chatId, [id]));
     return { id, remove: () => uninject(chatId, [id]) };
@@ -3044,12 +3412,12 @@ ${s.code}`).join("\n\n"));
     };
     const stop = onGenerationStart((start2) => {
       if (s.disposed || start2.chatId !== s.here()) return;
-      const num = start2.messageId ? s.messages.find((m2) => m2.id === start2.messageId)?.num ?? null : null;
+      const num2 = start2.messageId ? s.messages.find((m2) => m2.id === start2.messageId)?.num ?? null : null;
       const gen = {
         kind: start2.kind,
-        num,
+        num: num2,
         userMessage: start2.userMessage,
-        inject: async (text, options = {}) => void await injectFor(s, text, { ...options, once: true })
+        inject: async (text2, options = {}) => void await injectFor(s, text2, { ...options, once: true })
       };
       return call(fn, gen);
     });
@@ -3075,7 +3443,7 @@ ${s.code}`).join("\n\n"));
       onBeforeGen: cmd((fn) => beforeGen(s, fn, (f, gen) => f(gen))),
       onGenDone: cmd((fn) => afterGen(s, fn, true)),
       onGenError: cmd((fn) => afterGen(s, fn, false)),
-      inject: cmd({ writes: true }, (text, options) => injectFor(s, text, options))
+      inject: cmd({ writes: true }, (text2, options) => injectFor(s, text2, options))
     };
   }
 
@@ -3094,7 +3462,7 @@ ${s.code}`).join("\n\n"));
   }
   var db = null;
   var database = () => db ??= openDb();
-  async function read(key) {
+  async function read2(key) {
     const d2 = await database();
     return new Promise((resolve, reject) => {
       const req = d2.transaction(STORE, "readonly").objectStore(STORE).get(key);
@@ -3185,7 +3553,7 @@ ${s.code}`).join("\n\n"));
       found = (async () => {
         const key = `chat:${chatId}`;
         let readable2 = true;
-        const stored = await read(key).catch((e) => {
+        const stored = await read2(key).catch((e) => {
           console.warn("[Fornello] page storage not read; changes stay until reload", e);
           readable2 = false;
           byChat.delete(chatId);
@@ -3280,10 +3648,10 @@ ${s.code}`).join("\n\n"));
       chatId ? readChatData(chatId).catch(() => null) : Promise.resolve(null)
     ]);
   }
-  function messageAt(list, num) {
-    const n = Number(num);
+  function messageAt(list, num2) {
+    const n = Number(num2);
     const m2 = Number.isInteger(n) ? n < 0 ? list[list.length + n] : list.find((x2) => x2.num === n) : void 0;
-    if (!m2) throw new Error(t(`No message #${String(num)}.`, `${String(num)}번 메시지 없음.`));
+    if (!m2) throw new Error(t(`No message #${String(num2)}.`, `${String(num2)}번 메시지 없음.`));
     return m2;
   }
   var PageSession = class {
@@ -3381,8 +3749,8 @@ ${s.code}`).join("\n\n"));
     async freshMessages() {
       return this.messages = await listMessages(this.here(), { fresh: true });
     }
-    async byNum(num) {
-      return messageAt(await this.freshMessages(), num);
+    async byNum(num2) {
+      return messageAt(await this.freshMessages(), num2);
     }
     /** Counts an AI call; past SPEND_LIMIT a minute the person is asked, and a no stops the page's calls. */
     budget(name) {
@@ -3436,8 +3804,8 @@ ${s.code}`).join("\n\n"));
       sending = false;
     }
   }
-  async function sendMsg(s, text, confirm = false) {
-    const line = String(text ?? "").trim();
+  async function sendMsg(s, text2, confirm = false) {
+    const line = String(text2 ?? "").trim();
     if (!line) return false;
     if (confirm && !s.ui.confirm(t(`Send this?
 
@@ -3467,17 +3835,17 @@ ${line}`))) return false;
     if (done === false) s.ui.toast(t("The last send is still in progress.", "앞서 보낸 것이 아직 처리 중이에요."), "warning");
     return done;
   }
-  async function setMsg(s, num, text, options = {}) {
-    const m2 = await s.byNum(Number(num));
+  async function setMsg(s, num2, text2, options = {}) {
+    const m2 = await s.byNum(Number(num2));
     const refresh = options.refresh !== false;
-    const value2 = String(text ?? "");
+    const value2 = String(text2 ?? "");
     if (refresh) clearQuietEdit(m2.id);
     else markQuietEdit(m2.id, value2);
     await editMessage(m2.id, value2, { refresh }, s.here());
     m2.text = value2;
     return true;
   }
-  async function addMsg(s, text, role = "char", options = {}) {
+  async function addMsg(s, text2, role = "char", options = {}) {
     const extra = {};
     if (options.hidden) extra.hiddenFromAI = true;
     if (options.data) extra[MESSAGE_DATA] = mergeInto({}, options.data);
@@ -3497,7 +3865,7 @@ ${line}`))) return false;
       if (!Number.isFinite(end) || !Number.isFinite(start2)) throw new Error(t("Cannot place it there.", "그 자리에 넣을 수 없음."));
       createdAt = new Date(Math.floor((start2 + end) / 2)).toISOString();
     }
-    const id = await addMessage(String(text ?? ""), String(role), s.here(), { characterId, extra: Object.keys(extra).length ? extra : void 0, createdAt });
+    const id = await addMessage(String(text2 ?? ""), String(role), s.here(), { characterId, extra: Object.keys(extra).length ? extra : void 0, createdAt });
     if (id) s.ownIds.add(id);
     const list = await s.freshMessages();
     return list.find((m2) => m2.id === id)?.num ?? list.length;
@@ -3515,10 +3883,10 @@ ${line}`))) return false;
     composer.sendButton?.click();
     return true;
   }
-  function setInput(text) {
+  function setInput(text2) {
     const composer = findComposer();
     if (!composer) return false;
-    setComposerText(composer.textarea, String(text ?? ""));
+    setComposerText(composer.textarea, String(text2 ?? ""));
     composer.textarea.focus();
     return true;
   }
@@ -3533,7 +3901,7 @@ ${line}`))) return false;
         return;
       }
       try {
-        void Promise.resolve(fn({ ...m2 })).catch(s.report);
+        void Promise.resolve(fn(pageCopy(m2))).catch(s.report);
       } catch (e) {
         s.report(e);
       }
@@ -3541,13 +3909,16 @@ ${line}`))) return false;
     s.onDispose(stop);
     return stop;
   }
+  function pageCopy(m2) {
+    return { ...m2, data: structuredClone(m2.data ?? {}), ...m2.expressions ? { expressions: structuredClone(m2.expressions) } : {}, ...m2.story ? { story: structuredClone(m2.story) } : {} };
+  }
   function messageCommands(s) {
     return {
-      sendMsg: cmd({ writes: true, paid: true }, (text, confirm = false) => sendMsg(s, text, confirm)),
+      sendMsg: cmd({ writes: true, paid: true }, (text2, confirm = false) => sendMsg(s, text2, confirm)),
       sendRegen: cmd({ writes: true, paid: true }, (hint, confirm = false) => sendRegen(s, hint, confirm)),
       // getMsgs({ role: "char", hidden: false }): only those
       getMsgs: cmd(
-        async (options = {}) => (await s.freshMessages()).filter((m2) => (options.role === void 0 || m2.role === options.role) && (options.hidden === void 0 || m2.hidden === options.hidden)).map((m2) => ({ ...m2, data: structuredClone(m2.data ?? {}) }))
+        async (options = {}) => (await s.freshMessages()).filter((m2) => (options.role === void 0 || m2.role === options.role) && (options.hidden === void 0 || m2.hidden === options.hidden)).map(pageCopy)
       ),
       getLastMsg: cmd(async (role = "char") => {
         const want = String(role) === "assistant" ? "char" : String(role);
@@ -3555,8 +3926,8 @@ ${line}`))) return false;
         return [...list].reverse().find((m2) => m2.role === want)?.text ?? "";
       }),
       getMsgId: cmd(() => s.ownNum()),
-      setMsg: cmd({ writes: true }, (num, text, options) => setMsg(s, num, text, options)),
-      addMsg: cmd({ writes: true }, (text, role, options) => addMsg(s, text, role, options)),
+      setMsg: cmd({ writes: true }, (num2, text2, options) => setMsg(s, num2, text2, options)),
+      addMsg: cmd({ writes: true }, (text2, role, options) => addMsg(s, text2, role, options)),
       delMsg: cmd({ writes: true }, (nums) => delMsg(s, nums)),
       // stopGen(): the reply being written; stopGen(id): one of the page's own AI calls
       stopGen: cmd((id) => id === void 0 || id === null ? stopGen() : stopRun(s, String(id))),
@@ -3580,7 +3951,7 @@ ${line}`))) return false;
   var SCALARS = /* @__PURE__ */ new Set(["date", "time", "location", "weather", "temperature"]);
   var CHAR_TEXT = /* @__PURE__ */ new Set(["mood", "appearance", "outfit", "thoughts", "emoji", "action"]);
   var DEFAULT_COLOR = "#ec4b97";
-  function split(path) {
+  function split2(path) {
     const parts = path.split(".").map((p2) => p2.trim());
     if (parts.some((p2) => p2 === "")) throw new TrackerPathError(`Invalid tracker path "${path}"`);
     return parts;
@@ -3590,7 +3961,7 @@ ${line}`))) return false;
   function getTrackerValue(state2, path) {
     if (!path.trim()) return json(state2);
     if (!state2) return "";
-    const [head, ...rest] = split(path);
+    const [head, ...rest] = split2(path);
     const key = head.toLowerCase();
     if (SCALARS.has(key) && rest.length === 0) return String(state2[key] ?? "");
     switch (key) {
@@ -3606,14 +3977,14 @@ ${line}`))) return false;
         return s ? String(sub === "max" ? s.max : s.value) : "";
       }
       case "char": {
-        const [name, field, sub] = rest;
+        const [name, field2, sub] = rest;
         const c = state2.presentCharacters?.find((x2) => sameName2(x2.name, name ?? ""));
         if (!c) return "";
-        if (!field) return json(c);
-        if (CHAR_TEXT.has(field.toLowerCase())) return String(c[field.toLowerCase()] ?? "");
-        const stat = c.stats?.find((x2) => sameName2(x2.name, field));
+        if (!field2) return json(c);
+        if (CHAR_TEXT.has(field2.toLowerCase())) return String(c[field2.toLowerCase()] ?? "");
+        const stat = c.stats?.find((x2) => sameName2(x2.name, field2));
         if (stat) return String(sub === "max" ? stat.max : stat.value);
-        const custom = Object.entries(c.customFields ?? {}).find(([k2]) => sameName2(k2, field));
+        const custom = Object.entries(c.customFields ?? {}).find(([k2]) => sameName2(k2, field2));
         return custom ? custom[1] : "";
       }
       case "inventory":
@@ -3629,7 +4000,7 @@ ${line}`))) return false;
     }
   }
   function setTrackerValue(state2, path, value2, opts = {}) {
-    const [head, ...rest] = split(path);
+    const [head, ...rest] = split2(path);
     const key = head.toLowerCase();
     if (SCALARS.has(key) && rest.length === 0) {
       state2[key] = value2;
@@ -3664,23 +4035,23 @@ ${line}`))) return false;
         return ["personaStats"];
       }
       case "char": {
-        const [name, field, sub] = rest;
-        if (!name || !field) throw new TrackerPathError("char.<name>.<field> needs a character name and a field");
+        const [name, field2, sub] = rest;
+        if (!name || !field2) throw new TrackerPathError("char.<name>.<field> needs a character name and a field");
         const list = state2.presentCharacters ??= [];
         let c = list.find((x2) => sameName2(x2.name, name));
         if (!c) {
           c = { name, emoji: "", mood: "", appearance: null, outfit: null, thoughts: null, customFields: {}, stats: [] };
           list.push(c);
         }
-        const lower = field.toLowerCase();
+        const lower = field2.toLowerCase();
         if (CHAR_TEXT.has(lower)) {
           c[lower] = value2;
-        } else if (c.stats?.some((x2) => sameName2(x2.name, field)) || opts.asStat || sub === "max" || opts.max !== void 0) {
-          upsertStat(c.stats ??= [], field, sub, value2, opts);
+        } else if (c.stats?.some((x2) => sameName2(x2.name, field2)) || opts.asStat || sub === "max" || opts.max !== void 0) {
+          upsertStat(c.stats ??= [], field2, sub, value2, opts);
         } else {
           const fields = c.customFields ??= {};
-          const existing = Object.keys(fields).find((k2) => sameName2(k2, field));
-          fields[existing ?? field] = value2;
+          const existing = Object.keys(fields).find((k2) => sameName2(k2, field2));
+          fields[existing ?? field2] = value2;
         }
         return ["presentCharacters"];
       }
@@ -3759,10 +4130,10 @@ ${line}`))) return false;
     const chatId = s.here();
     let last = null;
     let timer = null;
-    const read3 = async () => plainTracker(await trackerState(void 0, chatId) ?? {});
-    void read3().then((now) => last ??= now).catch(() => last ??= {});
+    const read4 = async () => plainTracker(await trackerState(void 0, chatId) ?? {});
+    void read4().then((now) => last ??= now).catch(() => last ??= {});
     const check = async () => {
-      const now = await read3();
+      const now = await read4();
       if (s.disposed) return;
       const changed = trackerChanges(last ?? {}, now);
       last = now;
@@ -3786,9 +4157,9 @@ ${line}`))) return false;
     const known = new Map(agents.map((a) => [a.type, a.category]));
     const builtIn = (type) => known.has(type) && known.get(type) !== "custom";
     const types = manual.filter((type) => known.get(type) === "tracker");
-    const run = types.length ? types : on.filter((type) => known.get(type) === "tracker" || !builtIn(type));
-    if (!run.length) throw new Error(t("No trackers on in this chat.", "이 채팅에 켜진 트래커 없음."));
-    const errors = await rerunAgents(chatId, run);
+    const run2 = types.length ? types : on.filter((type) => known.get(type) === "tracker" || !builtIn(type));
+    if (!run2.length) throw new Error(t("No trackers on in this chat.", "이 채팅에 켜진 트래커 없음."));
+    const errors = await rerunAgents(chatId, run2);
     if (errors.length) throw new Error(errors.join("; "));
     return true;
   }
@@ -3798,6 +4169,76 @@ ${line}`))) return false;
       setTracker: cmd({ writes: true }, (values2) => setTracker(s, values2)),
       onTracker: cmd((fn) => onTracker(s, fn)),
       runTrackers: cmd({ writes: true, paid: true }, () => runTrackers(s))
+    };
+  }
+
+  // src/state/access.ts
+  var access = null;
+  var listeners3 = /* @__PURE__ */ new Set();
+  function setStoryAccess(a) {
+    access = a;
+  }
+  function storyAccess() {
+    return access;
+  }
+  function onStoryChange(fn) {
+    listeners3.add(fn);
+    return () => listeners3.delete(fn);
+  }
+  function storyChanged(chatId) {
+    for (const fn of [...listeners3]) {
+      try {
+        fn(chatId);
+      } catch (e) {
+        console.warn("[Fornello]", e);
+      }
+    }
+  }
+  function storyPaths(view) {
+    const out = [];
+    const walk2 = (v, path) => {
+      if (path) out.push(path);
+      if (v && typeof v === "object" && !Array.isArray(v)) for (const [k2, x2] of Object.entries(v)) walk2(x2, path ? `${path}.${k2}` : k2);
+    };
+    walk2(view.values, "");
+    out.push(...Object.keys(view.derived));
+    return out;
+  }
+
+  // src/api/commands/story.ts
+  async function getState(s, num2) {
+    const access2 = storyAccess();
+    if (!access2 || s.preview) return null;
+    const list = await s.freshMessages();
+    const at3 = num2 === void 0 || num2 === null ? s.ownNum() ?? list.length : num2;
+    const id = list.length ? messageAt(list, at3).id : null;
+    const view = await access2.at(s.here(), id);
+    return view ? { ...view.values, ...view.derived } : null;
+  }
+  async function setState(s, path, value2, num2) {
+    const access2 = storyAccess();
+    if (!access2 || typeof path !== "string" || !path) return null;
+    const list = await s.freshMessages();
+    const message = messageAt(list, num2 ?? -1);
+    await access2.edit(s.here(), message.id, [{ path, value: value2 === void 0 ? null : value2 }]);
+    return getState(s, message.num);
+  }
+  function onStateChange(s, fn) {
+    if (typeof fn !== "function" || s.preview) return () => {
+    };
+    const chatId = s.here();
+    const stop = onStoryChange((id) => {
+      if (id !== chatId || s.disposed) return;
+      void getState(s, -1).then((values2) => values2 && fn(values2)).catch(s.report);
+    });
+    s.onDispose(stop);
+    return stop;
+  }
+  function storyCommands(s) {
+    return {
+      getState: cmd((num2) => getState(s, num2)),
+      setState: cmd({ writes: true }, (path, value2, num2) => setState(s, path, value2, num2)),
+      onStateChange: cmd((fn) => onStateChange(s, fn))
     };
   }
 
@@ -3852,8 +4293,8 @@ ${line}`))) return false;
 
   // src/api/commands/msg-data.ts
   var defaultNum = (s) => s.ownNum() ?? s.messages.length;
-  function getMsgData(s, num) {
-    const m2 = messageAt(s.messages, num ?? defaultNum(s));
+  function getMsgData(s, num2) {
+    const m2 = messageAt(s.messages, num2 ?? defaultNum(s));
     return structuredClone(m2.data ?? {});
   }
   var lastWrite = /* @__PURE__ */ new WeakMap();
@@ -3862,17 +4303,17 @@ ${line}`))) return false;
     lastWrite.set(s, next2);
     return next2;
   }
-  function changeMsgData(s, num, change) {
-    const m2 = messageAt(s.messages, num ?? defaultNum(s));
+  function changeMsgData(s, num2, change) {
+    const m2 = messageAt(s.messages, num2 ?? defaultNum(s));
     const next2 = structuredClone(m2.data ?? {});
     change(next2);
     m2.data = next2;
     if (s.preview) return Promise.resolve();
     return inTurn(s, () => patchMessageExtra(s.here(), m2.id, { [MESSAGE_DATA]: next2 })).catch((e) => s.report(e instanceof Error ? e.message : String(e)));
   }
-  function setMsgData(s, num, values2, options = {}) {
+  function setMsgData(s, num2, values2, options = {}) {
     return inTurn(s, async () => {
-      const m2 = messageAt(await s.freshMessages(), num ?? defaultNum(s));
+      const m2 = messageAt(await s.freshMessages(), num2 ?? defaultNum(s));
       const next2 = options.replace ? mergeInto({}, values2 ?? {}) : mergeInto(structuredClone(m2.data ?? {}), values2 ?? {});
       if (!s.preview) await patchMessageExtra(s.here(), m2.id, { [MESSAGE_DATA]: next2 });
       m2.data = next2;
@@ -3881,8 +4322,8 @@ ${line}`))) return false;
       return structuredClone(next2);
     });
   }
-  async function getSwipes(s, num) {
-    const m2 = messageAt(await s.freshMessages(), num);
+  async function getSwipes(s, num2) {
+    const m2 = messageAt(await s.freshMessages(), num2);
     return listSwipes(s.here(), m2.id);
   }
   async function setHidden(s, nums, hidden) {
@@ -3892,26 +4333,26 @@ ${line}`))) return false;
     await s.freshMessages();
     return ids.length;
   }
-  async function showSwipe(s, num, index) {
-    await setActiveSwipe(s.here(), messageAt(await s.freshMessages(), num).id, Number(index));
+  async function showSwipe(s, num2, index) {
+    await setActiveSwipe(s.here(), messageAt(await s.freshMessages(), num2).id, Number(index));
     await s.freshMessages();
   }
   function msgDataCommands(s) {
-    const at2 = async (num) => messageAt(await s.freshMessages(), num);
+    const at3 = async (num2) => messageAt(await s.freshMessages(), num2);
     const then = async (done) => (await s.freshMessages(), done);
     return {
-      getMsgData: cmd((num) => getMsgData(s, num)),
-      setMsgData: cmd((num, values2, options) => setMsgData(s, num, values2, options)),
-      getSwipes: cmd((num) => getSwipes(s, num)),
-      setSwipe: cmd({ writes: true }, (num, index) => showSwipe(s, num, index)),
+      getMsgData: cmd((num2) => getMsgData(s, num2)),
+      setMsgData: cmd((num2, values2, options) => setMsgData(s, num2, values2, options)),
+      getSwipes: cmd((num2) => getSwipes(s, num2)),
+      setSwipe: cmd({ writes: true }, (num2, index) => showSwipe(s, num2, index)),
       addSwipe: cmd(
         { writes: true },
-        async (num, text, options = {}) => then(await addSwipe(s.here(), (await at2(num)).id, String(text ?? ""), options.show === false))
+        async (num2, text2, options = {}) => then(await addSwipe(s.here(), (await at3(num2)).id, String(text2 ?? ""), options.show === false))
       ),
-      delSwipe: cmd({ writes: true }, async (num, index) => then(await deleteSwipe(s.here(), (await at2(num)).id, Number(index)))),
+      delSwipe: cmd({ writes: true }, async (num2, index) => then(await deleteSwipe(s.here(), (await at3(num2)).id, Number(index)))),
       hideMsg: cmd({ writes: true }, (nums) => setHidden(s, nums, true)),
       showMsg: cmd({ writes: true }, (nums) => setHidden(s, nums, false)),
-      branch: cmd({ writes: true }, async (num) => branchChat(s.here(), (await at2(num ?? -1)).id))
+      branch: cmd({ writes: true }, async (num2) => branchChat(s.here(), (await at3(num2 ?? -1)).id))
     };
   }
 
@@ -3962,20 +4403,20 @@ ${line}`))) return false;
     return { kind: "none" };
   }
   function getAny(s, options) {
-    const at2 = varPlace(s, options);
-    if (at2.kind === "chat") return readVars(s);
-    if (at2.kind === "message") return getMsgData(s, at2.num);
-    if (at2.kind === "none") return {};
-    return readExtra(at2.kind, at2.key, at2.initial);
+    const at3 = varPlace(s, options);
+    if (at3.kind === "chat") return readVars(s);
+    if (at3.kind === "message") return getMsgData(s, at3.num);
+    if (at3.kind === "none") return {};
+    return readExtra(at3.kind, at3.key, at3.initial);
   }
   function changeAny(s, options, change) {
-    const at2 = varPlace(s, options);
-    if (at2.kind === "chat") return changeVars(s, change);
-    if (at2.kind === "message") return changeMsgData(s, at2.num, change);
-    if (at2.kind === "none" || s.preview) return;
-    const vars = readExtra(at2.kind, at2.key, at2.initial);
+    const at3 = varPlace(s, options);
+    if (at3.kind === "chat") return changeVars(s, change);
+    if (at3.kind === "message") return changeMsgData(s, at3.num, change);
+    if (at3.kind === "none" || s.preview) return;
+    const vars = readExtra(at3.kind, at3.key, at3.initial);
     change(vars);
-    writeExtra(at2.kind, at2.key, vars, { replace: true, initial: at2.initial });
+    writeExtra(at3.kind, at3.key, vars, { replace: true, initial: at3.initial });
   }
   function setAny(s, values2, options, replace) {
     if (replace && varPlace(s, options).kind === "chat") return replaceVars(s, values2);
@@ -4054,18 +4495,18 @@ ${line}`))) return false;
     });
   }
   async function runSlash(s, line) {
-    const text = String(line ?? "").trim();
-    if (!text) return "";
+    const text2 = String(line ?? "").trim();
+    if (!text2) return "";
     if (window.__dispensa) {
-      if (slashCallsAi(text)) s.budget("runSlash");
+      if (slashCallsAi(text2)) s.budget("runSlash");
       try {
-        return await window.__dispensa.runSlash(text);
+        return await window.__dispensa.runSlash(text2);
       } finally {
         forgetChat(s.chatId ?? currentChatId());
         if (s.chatId) await refreshShared(s.chatId).catch(() => void 0);
       }
     }
-    const parts = splitPipes(text).map(parseCommand);
+    const parts = splitPipes(text2).map(parseCommand);
     let pipe = "";
     for (let i = 0; i < parts.length; i++) {
       const { name, text: arg } = parts[i];
@@ -4138,23 +4579,23 @@ ${line}`))) return false;
   }
 
   // src/api/event-bus.ts
-  var listeners3 = /* @__PURE__ */ new Map();
+  var listeners4 = /* @__PURE__ */ new Map();
   function onEvent(event, fn, first = false) {
-    const list = listeners3.get(event) ?? [];
+    const list = listeners4.get(event) ?? [];
     if (first) list.unshift(fn);
     else list.push(fn);
-    listeners3.set(event, list);
+    listeners4.set(event, list);
     return () => offEvent(event, fn);
   }
   function offEvent(event, fn) {
-    const list = listeners3.get(event);
+    const list = listeners4.get(event);
     if (!list) return;
     const i = list.indexOf(fn);
     if (i >= 0) list.splice(i, 1);
-    if (!list.length) listeners3.delete(event);
+    if (!list.length) listeners4.delete(event);
   }
   async function emitEvent(event, args, report = (e) => console.warn("[Fornello]", e)) {
-    for (const fn of [...listeners3.get(event) ?? []]) {
+    for (const fn of [...listeners4.get(event) ?? []]) {
       try {
         await fn(...args);
       } catch (e) {
@@ -4163,7 +4604,7 @@ ${line}`))) return false;
     }
   }
   function clearEvents() {
-    listeners3.clear();
+    listeners4.clear();
   }
 
   // src/api/st-generate.ts
@@ -4188,17 +4629,17 @@ ${line}`))) return false;
     return list.map((i) => typeof i === "string" ? i : String(i?.url ?? "")).filter(Boolean);
   }
   function streamEvents(id, report) {
-    return (text, piece) => {
-      void emitEvent(IFRAME_EVENTS.STREAM_TOKEN_RECEIVED_FULLY, [text, id], report);
+    return (text2, piece) => {
+      void emitEvent(IFRAME_EVENTS.STREAM_TOKEN_RECEIVED_FULLY, [text2, id], report);
       void emitEvent(IFRAME_EVENTS.STREAM_TOKEN_RECEIVED_INCREMENTALLY, [piece, id], report);
     };
   }
-  async function asStGeneration(s, config, run) {
+  async function asStGeneration(s, config, run2) {
     const id = String(config.generation_id ?? `gen-${Date.now().toString(36)}`);
     await emitEvent(IFRAME_EVENTS.GENERATION_STARTED, [id], s.report);
-    const text = await run(id, config.should_stream ? streamEvents(id, s.report) : void 0);
-    await emitEvent(IFRAME_EVENTS.GENERATION_ENDED, [text, id], s.report);
-    return config.should_return_reasoning ? { content: text } : text;
+    const text2 = await run2(id, config.should_stream ? streamEvents(id, s.report) : void 0);
+    await emitEvent(IFRAME_EVENTS.GENERATION_ENDED, [text2, id], s.report);
+    return config.should_return_reasoning ? { content: text2 } : text2;
   }
   async function stGenerate(s, config) {
     const c = typeof config === "string" ? { user_input: config } : config ?? {};
@@ -4233,7 +4674,7 @@ ${line}`))) return false;
     const overrides = c.overrides ?? {};
     const chatId = s.chatId;
     const lore = chatId ? await alwaysOnLore(chatId).catch(() => []) : [];
-    const text = {
+    const text2 = {
       world_info_before: lore.map((l) => l.content).join("\n\n"),
       persona_description: s.me.description,
       char_description: card?.description ?? "",
@@ -4242,7 +4683,7 @@ ${line}`))) return false;
       world_info_after: "",
       dialogue_examples: String(data.mes_example ?? "")
     };
-    for (const key of Object.keys(text)) if (typeof overrides[key] === "string") text[key] = overrides[key];
+    for (const key of Object.keys(text2)) if (typeof overrides[key] === "string") text2[key] = overrides[key];
     const historyOverride = overrides.chat_history?.prompts;
     const max = c.max_chat_history === void 0 || c.max_chat_history === "all" ? Infinity : Math.max(0, Number(c.max_chat_history) || 0);
     const history = Array.isArray(historyOverride) ? historyOverride.map(rolePrompt) : (await s.freshMessages()).filter((m2) => !m2.hidden && m2.role !== "system").slice(max === Infinity ? 0 : -max || Number.MAX_SAFE_INTEGER).map((m2) => ({ role: m2.role === "user" ? "user" : "assistant", content: m2.text }));
@@ -4259,7 +4700,7 @@ ${line}`))) return false;
           if (userInput(c)) out.push({ role: "user", content: userInput(c), ...images(c.image) ? { images: images(c.image) } : {} });
           inputPlaced = true;
         } else if (PLACEHOLDERS.includes(item2)) {
-          const value2 = text[item2];
+          const value2 = text2[item2];
           if (value2) out.push({ role: "system", content: value2 });
         }
       } else if (item2 && typeof item2 === "object") out.push(rolePrompt(item2));
@@ -4272,11 +4713,11 @@ ${line}`))) return false;
       } else out.push(input2);
     }
     if (Array.isArray(c.injects)) {
-      const at2 = historyEnd >= 0 ? historyEnd : out.length;
+      const at3 = historyEnd >= 0 ? historyEnd : out.length;
       for (const inj of c.injects) {
         if (inj.position === "none") throw notSupported('position "none"');
         const depth = Math.max(0, Number(inj.depth ?? 0) || 0);
-        out.splice(Math.max(0, at2 - depth), 0, { role: inj.role ?? "system", content: String(inj.content ?? "") });
+        out.splice(Math.max(0, at3 - depth), 0, { role: inj.role ?? "system", content: String(inj.content ?? "") });
       }
     }
     return out;
@@ -4317,7 +4758,7 @@ ${line}`))) return false;
   }
 
   // package.json
-  var version = "0.3.6";
+  var version = "0.3.7";
 
   // src/api/shared-globals.ts
   var values = /* @__PURE__ */ new Map();
@@ -4580,7 +5021,7 @@ ${line}`))) return false;
         if (!await removeLore(s, String(name), book, doomed.map((e) => e.id))) doomed = [];
         return { worldbook: all.filter((e) => !doomed.includes(e)).map(stEntry), deleted_entries: doomed.map(stEntry) };
       }),
-      // the same, under JS-Slash-Runner's older "Lorebook" names
+      // the same, under the older "Lorebook" names
       getLorebooks: cmd(() => [...s.bookNames]),
       getLorebookEntries: cmd(async (name) => {
         const found = await bookFor(s, String(name), false);
@@ -4821,9 +5262,9 @@ ${line}`))) return false;
         return stRegexes(s, option);
       }),
       isCharacterTavernRegexesEnabled: cmd(() => true),
-      formatAsTavernRegexedString: cmd((text, source, destination, options = {}) => {
-        if (source !== "ai_output" && source !== "user_input") return String(text ?? "");
-        return applyRegex(s, text, { on: String(source), mode: destination === "prompt" ? "prompt" : "display", depth: options?.depth });
+      formatAsTavernRegexedString: cmd((text2, source, destination, options = {}) => {
+        if (source !== "ai_output" && source !== "user_input") return String(text2 ?? "");
+        return applyRegex(s, text2, { on: String(source), mode: destination === "prompt" ? "prompt" : "display", depth: options?.depth });
       })
     };
   }
@@ -4915,13 +5356,13 @@ ${line}`))) return false;
     if (list.some((item2) => item2.swipes !== void 0 || item2.swipes_data !== void 0)) throw new Error(t("Not supported: swipes", "지원 안 함: swipes"));
     for (const item2 of list) {
       const id = Number(item2.message_id);
-      const num = id < 0 ? id : id + 1;
-      if (item2.swipe_id !== void 0) await showSwipe(s, num, item2.swipe_id);
-      if (item2.message !== void 0) await setMsg(s, num, item2.message, { refresh });
-      if (item2.is_hidden !== void 0) await setHidden(s, num, item2.is_hidden === true);
+      const num2 = id < 0 ? id : id + 1;
+      if (item2.swipe_id !== void 0) await showSwipe(s, num2, item2.swipe_id);
+      if (item2.message !== void 0) await setMsg(s, num2, item2.message, { refresh });
+      if (item2.is_hidden !== void 0) await setHidden(s, num2, item2.is_hidden === true);
       if (item2.data !== void 0) {
         const data = item2.data ?? {};
-        await changeMsgData(s, num, (d2) => {
+        await changeMsgData(s, num2, (d2) => {
           for (const k2 of Object.keys(d2)) delete d2[k2];
           Object.assign(d2, structuredClone(data));
         });
@@ -4929,14 +5370,14 @@ ${line}`))) return false;
     }
   }
   async function stCreateMessages(s, items2, options = {}) {
-    const at2 = options.insert_before;
-    const before = at2 === void 0 || at2 === "end" ? void 0 : Number(at2) < 0 ? Number(at2) : Number(at2) + 1;
+    const at3 = options.insert_before;
+    const before = at3 === void 0 || at3 === "end" ? void 0 : Number(at3) < 0 ? Number(at3) : Number(at3) + 1;
     const anchor = before === void 0 ? void 0 : (await s.byNum(before)).id;
     for (const item2 of Array.isArray(items2) ? items2 : [items2]) {
       const role = item2.role === "user" ? "user" : item2.role === "system" ? "narrator" : "char";
-      const num = anchor ? (await s.freshMessages()).find((m2) => m2.id === anchor)?.num : void 0;
+      const num2 = anchor ? (await s.freshMessages()).find((m2) => m2.id === anchor)?.num : void 0;
       const name = role === "char" && item2.name && s.cast.some((c) => c.name === item2.name) ? item2.name : void 0;
-      await addMsg(s, item2.message, role, { name, hidden: item2.is_hidden === true, data: item2.data, before: num });
+      await addMsg(s, item2.message, role, { name, hidden: item2.is_hidden === true, data: item2.data, before: num2 });
     }
   }
   function stRange(range, last) {
@@ -4978,8 +5419,8 @@ ${line}`))) return false;
     s.onDispose(() => {
       for (const l of own.splice(0)) l.stop();
     });
-    const off = (pick) => {
-      const gone = own.filter(pick);
+    const off = (pick2) => {
+      const gone = own.filter(pick2);
       own = own.filter((l) => !gone.includes(l));
       for (const l of gone) l.stop();
     };
@@ -5042,7 +5483,7 @@ ${line}`))) return false;
       injectPrompts: cmd({ writes: true }, (prompts, options) => stInjectPrompts(s, prompts, options)),
       uninjectPrompts: cmd({ writes: true }, (ids) => uninject(s.here(), (Array.isArray(ids) ? ids : [ids]).map(String))),
       stopGenerationById: cmd((id) => stopRun(s, String(id))),
-      // as JS-Slash-Runner: merged all the way down, answered with the variables as they now are
+      // merged all the way down, answered with the variables as they now are
       getVariables: cmd((options) => getAny(s, options)),
       insertOrAssignVariables: cmd((values2, options) => {
         void setAny(s, values2, options, false);
@@ -5069,14 +5510,14 @@ ${line}`))) return false;
       }),
       getChatMessages: cmd((range, options) => stGetMessages(s, range, options)),
       getCurrentMessageId: cmd(() => {
-        const num = s.ownNum();
-        return num === null ? -1 : num - 1;
+        const num2 = s.ownNum();
+        return num2 === null ? -1 : num2 - 1;
       }),
       getLastMessageId: cmd(() => s.messages.length - 1),
       setChatMessage: cmd({ writes: true }, (fields, messageId, options = {}) => {
-        const text = typeof fields === "string" ? fields : fields?.message;
-        if (text === void 0) return Promise.resolve(false);
-        return setMsg(s, Number(messageId) + 1, text, { refresh: options.refresh !== "none" });
+        const text2 = typeof fields === "string" ? fields : fields?.message;
+        if (text2 === void 0) return Promise.resolve(false);
+        return setMsg(s, Number(messageId) + 1, text2, { refresh: options.refresh !== "none" });
       }),
       setChatMessages: cmd({ writes: true }, (list, options = {}) => stSetMessages(s, list, options.refresh !== "none")),
       createChatMessages: cmd({ writes: true }, (list, options) => stCreateMessages(s, list, options)),
@@ -5168,11 +5609,13 @@ ${line}`))) return false;
       ...variableCommands(s),
       ...chatCommands(s),
       ...trackerCommands(s),
+      ...storyCommands(s),
       ...loreCommands(s),
       ...peopleCommands(s),
       ...regexCommands(s),
       ...agentCommands(s),
       ...mediaCommands(s),
+      ...assetCommands(s),
       ...summaryCommands(s),
       ...scriptLibraryCommands(s),
       ...slashCommands(s),
@@ -5391,8 +5834,8 @@ ${doc.documentElement.outerHTML}`;
     TokenType2[TokenType2["IS_POSTFIX"] = IS_POSTFIX] = "IS_POSTFIX";
     const IS_EXPRESSION_START = 1 << 9;
     TokenType2[TokenType2["IS_EXPRESSION_START"] = IS_EXPRESSION_START] = "IS_EXPRESSION_START";
-    const num = 512;
-    TokenType2[TokenType2["num"] = num] = "num";
+    const num2 = 512;
+    TokenType2[TokenType2["num"] = num2] = "num";
     const bigint = 1536;
     TokenType2[TokenType2["bigint"] = bigint] = "bigint";
     const decimal = 2560;
@@ -5445,8 +5888,8 @@ ${doc.documentElement.outerHTML}`;
     TokenType2[TokenType2["backQuote"] = backQuote] = "backQuote";
     const dollarBraceL = 27136;
     TokenType2[TokenType2["dollarBraceL"] = dollarBraceL] = "dollarBraceL";
-    const at2 = 27648;
-    TokenType2[TokenType2["at"] = at2] = "at";
+    const at3 = 27648;
+    TokenType2[TokenType2["at"] = at3] = "at";
     const hash = 29184;
     TokenType2[TokenType2["hash"] = hash] = "hash";
     const eq = 29728;
@@ -15905,8 +16348,8 @@ ${doc.documentElement.outerHTML}`;
     skipSpace();
     state.start = state.pos;
     if (state.pos >= input.length) {
-      const tokens = state.tokens;
-      if (tokens.length >= 2 && tokens[tokens.length - 1].start >= input.length && tokens[tokens.length - 2].start >= input.length) {
+      const tokens2 = state.tokens;
+      if (tokens2.length >= 2 && tokens2[tokens2.length - 1].start >= input.length && tokens2[tokens2.length - 2].start >= input.length) {
         unexpected("Unexpectedly reached the end of input.");
       }
       finishToken(TokenType.eof);
@@ -16437,10 +16880,10 @@ ${doc.documentElement.outerHTML}`;
   }
 
   // node_modules/sucrase/dist/esm/util/getImportExportSpecifierInfo.js
-  function getImportExportSpecifierInfo(tokens, index = tokens.currentIndex()) {
+  function getImportExportSpecifierInfo(tokens2, index = tokens2.currentIndex()) {
     let endIndex = index + 1;
-    if (isSpecifierEnd(tokens, endIndex)) {
-      const name = tokens.identifierNameAtIndex(index);
+    if (isSpecifierEnd(tokens2, endIndex)) {
+      const name = tokens2.identifierNameAtIndex(index);
       return {
         isType: false,
         leftName: name,
@@ -16449,7 +16892,7 @@ ${doc.documentElement.outerHTML}`;
       };
     }
     endIndex++;
-    if (isSpecifierEnd(tokens, endIndex)) {
+    if (isSpecifierEnd(tokens2, endIndex)) {
       return {
         isType: true,
         leftName: null,
@@ -16458,16 +16901,16 @@ ${doc.documentElement.outerHTML}`;
       };
     }
     endIndex++;
-    if (isSpecifierEnd(tokens, endIndex)) {
+    if (isSpecifierEnd(tokens2, endIndex)) {
       return {
         isType: false,
-        leftName: tokens.identifierNameAtIndex(index),
-        rightName: tokens.identifierNameAtIndex(index + 2),
+        leftName: tokens2.identifierNameAtIndex(index),
+        rightName: tokens2.identifierNameAtIndex(index + 2),
         endIndex
       };
     }
     endIndex++;
-    if (isSpecifierEnd(tokens, endIndex)) {
+    if (isSpecifierEnd(tokens2, endIndex)) {
       return {
         isType: true,
         leftName: null,
@@ -16477,8 +16920,8 @@ ${doc.documentElement.outerHTML}`;
     }
     throw new Error(`Unexpected import/export specifier at ${index}`);
   }
-  function isSpecifierEnd(tokens, index) {
-    const token = tokens.tokens[index];
+  function isSpecifierEnd(tokens2, index) {
+    const token = tokens2.tokens[index];
     return token.type === TokenType.braceR || token.type === TokenType.comma;
   }
 
@@ -16790,10 +17233,10 @@ ${doc.documentElement.outerHTML}`;
     __init5() {
       this.cjsAutomaticModuleNameResolutions = {};
     }
-    constructor(rootTransformer, tokens, importProcessor, nameManager, options) {
+    constructor(rootTransformer, tokens2, importProcessor, nameManager, options) {
       super();
       this.rootTransformer = rootTransformer;
-      this.tokens = tokens;
+      this.tokens = tokens2;
       this.importProcessor = importProcessor;
       this.nameManager = nameManager;
       this.options = options;
@@ -17224,13 +17667,13 @@ ${doc.documentElement.outerHTML}`;
     const firstChar = s.charCodeAt(0);
     return firstChar >= charCodes.lowercaseA && firstChar <= charCodes.lowercaseZ;
   }
-  function formatJSXTextLiteral(text) {
+  function formatJSXTextLiteral(text2) {
     let result = "";
     let whitespace = "";
     let isInInitialLineWhitespace = false;
     let seenNonWhitespace = false;
-    for (let i = 0; i < text.length; i++) {
-      const c = text[i];
+    for (let i = 0; i < text2.length; i++) {
+      const c = text2[i];
       if (c === " " || c === "	" || c === "\r") {
         if (!isInInitialLineWhitespace) {
           whitespace += c;
@@ -17245,7 +17688,7 @@ ${doc.documentElement.outerHTML}`;
         result += whitespace;
         whitespace = "";
         if (c === "&") {
-          const { entity, newI } = processEntity(text, i + 1);
+          const { entity, newI } = processEntity(text2, i + 1);
           i = newI - 1;
           result += entity;
         } else {
@@ -17260,10 +17703,10 @@ ${doc.documentElement.outerHTML}`;
     }
     return JSON.stringify(result);
   }
-  function formatJSXTextReplacement(text) {
+  function formatJSXTextReplacement(text2) {
     let numNewlines = 0;
     let numSpaces = 0;
-    for (const c of text) {
+    for (const c of text2) {
       if (c === "\n") {
         numNewlines++;
         numSpaces = 0;
@@ -17273,21 +17716,21 @@ ${doc.documentElement.outerHTML}`;
     }
     return "\n".repeat(numNewlines) + " ".repeat(numSpaces);
   }
-  function formatJSXStringValueLiteral(text) {
+  function formatJSXStringValueLiteral(text2) {
     let result = "";
-    for (let i = 0; i < text.length; i++) {
-      const c = text[i];
+    for (let i = 0; i < text2.length; i++) {
+      const c = text2[i];
       if (c === "\n") {
-        if (/\s/.test(text[i + 1])) {
+        if (/\s/.test(text2[i + 1])) {
           result += " ";
-          while (i < text.length && /\s/.test(text[i + 1])) {
+          while (i < text2.length && /\s/.test(text2[i + 1])) {
             i++;
           }
         } else {
           result += "\n";
         }
       } else if (c === "&") {
-        const { entity, newI } = processEntity(text, i + 1);
+        const { entity, newI } = processEntity(text2, i + 1);
         result += entity;
         i = newI - 1;
       } else {
@@ -17296,38 +17739,38 @@ ${doc.documentElement.outerHTML}`;
     }
     return JSON.stringify(result);
   }
-  function processEntity(text, indexAfterAmpersand) {
+  function processEntity(text2, indexAfterAmpersand) {
     let str3 = "";
     let count = 0;
     let entity;
     let i = indexAfterAmpersand;
-    if (text[i] === "#") {
+    if (text2[i] === "#") {
       let radix = 10;
       i++;
       let numStart;
-      if (text[i] === "x") {
+      if (text2[i] === "x") {
         radix = 16;
         i++;
         numStart = i;
-        while (i < text.length && isHexDigit(text.charCodeAt(i))) {
+        while (i < text2.length && isHexDigit(text2.charCodeAt(i))) {
           i++;
         }
       } else {
         numStart = i;
-        while (i < text.length && isDecimalDigit(text.charCodeAt(i))) {
+        while (i < text2.length && isDecimalDigit(text2.charCodeAt(i))) {
           i++;
         }
       }
-      if (text[i] === ";") {
-        const numStr = text.slice(numStart, i);
+      if (text2[i] === ";") {
+        const numStr = text2.slice(numStart, i);
         if (numStr) {
           i++;
           entity = String.fromCodePoint(parseInt(numStr, radix));
         }
       }
     } else {
-      while (i < text.length && count++ < 10) {
-        const ch = text[i];
+      while (i < text2.length && count++ < 10) {
+        const ch = text2[i];
         i++;
         if (ch === ";") {
           entity = xhtml_default.get(str3);
@@ -17349,25 +17792,25 @@ ${doc.documentElement.outerHTML}`;
   }
 
   // node_modules/sucrase/dist/esm/util/getNonTypeIdentifiers.js
-  function getNonTypeIdentifiers(tokens, options) {
+  function getNonTypeIdentifiers(tokens2, options) {
     const jsxPragmaInfo = getJSXPragmaInfo(options);
     const nonTypeIdentifiers = /* @__PURE__ */ new Set();
-    for (let i = 0; i < tokens.tokens.length; i++) {
-      const token = tokens.tokens[i];
+    for (let i = 0; i < tokens2.tokens.length; i++) {
+      const token = tokens2.tokens[i];
       if (token.type === TokenType.name && !token.isType && (token.identifierRole === IdentifierRole.Access || token.identifierRole === IdentifierRole.ObjectShorthand || token.identifierRole === IdentifierRole.ExportAccess) && !token.shadowsGlobal) {
-        nonTypeIdentifiers.add(tokens.identifierNameForToken(token));
+        nonTypeIdentifiers.add(tokens2.identifierNameForToken(token));
       }
       if (token.type === TokenType.jsxTagStart) {
         nonTypeIdentifiers.add(jsxPragmaInfo.base);
       }
-      if (token.type === TokenType.jsxTagStart && i + 1 < tokens.tokens.length && tokens.tokens[i + 1].type === TokenType.jsxTagEnd) {
+      if (token.type === TokenType.jsxTagStart && i + 1 < tokens2.tokens.length && tokens2.tokens[i + 1].type === TokenType.jsxTagEnd) {
         nonTypeIdentifiers.add(jsxPragmaInfo.base);
         nonTypeIdentifiers.add(jsxPragmaInfo.fragmentBase);
       }
       if (token.type === TokenType.jsxName && token.identifierRole === IdentifierRole.Access) {
-        const identifierName = tokens.identifierNameForToken(token);
-        if (!startsWithLowerCase(identifierName) || tokens.tokens[i + 1].type === TokenType.dot) {
-          nonTypeIdentifiers.add(tokens.identifierNameForToken(token));
+        const identifierName = tokens2.identifierNameForToken(token);
+        if (!startsWithLowerCase(identifierName) || tokens2.tokens[i + 1].type === TokenType.dot) {
+          nonTypeIdentifiers.add(tokens2.identifierNameForToken(token));
         }
       }
     }
@@ -17391,10 +17834,10 @@ ${doc.documentElement.outerHTML}`;
     __init5() {
       this.exportBindingsByLocalName = /* @__PURE__ */ new Map();
     }
-    constructor(nameManager, tokens, enableLegacyTypeScriptModuleInterop, options, isTypeScriptTransformEnabled, keepUnusedImports, helperManager) {
+    constructor(nameManager, tokens2, enableLegacyTypeScriptModuleInterop, options, isTypeScriptTransformEnabled, keepUnusedImports, helperManager) {
       ;
       this.nameManager = nameManager;
-      this.tokens = tokens;
+      this.tokens = tokens2;
       this.enableLegacyTypeScriptModuleInterop = enableLegacyTypeScriptModuleInterop;
       this.options = options;
       this.isTypeScriptTransformEnabled = isTypeScriptTransformEnabled;
@@ -17914,24 +18357,24 @@ ${doc.documentElement.outerHTML}`;
   };
 
   // node_modules/sucrase/dist/esm/identifyShadowedGlobals.js
-  function identifyShadowedGlobals(tokens, scopes, globalNames) {
-    if (!hasShadowedGlobals(tokens, globalNames)) {
+  function identifyShadowedGlobals(tokens2, scopes, globalNames) {
+    if (!hasShadowedGlobals(tokens2, globalNames)) {
       return;
     }
-    markShadowedGlobals(tokens, scopes, globalNames);
+    markShadowedGlobals(tokens2, scopes, globalNames);
   }
-  function hasShadowedGlobals(tokens, globalNames) {
-    for (const token of tokens.tokens) {
-      if (token.type === TokenType.name && !token.isType && isNonTopLevelDeclaration(token) && globalNames.has(tokens.identifierNameForToken(token))) {
+  function hasShadowedGlobals(tokens2, globalNames) {
+    for (const token of tokens2.tokens) {
+      if (token.type === TokenType.name && !token.isType && isNonTopLevelDeclaration(token) && globalNames.has(tokens2.identifierNameForToken(token))) {
         return true;
       }
     }
     return false;
   }
-  function markShadowedGlobals(tokens, scopes, globalNames) {
+  function markShadowedGlobals(tokens2, scopes, globalNames) {
     const scopeStack = [];
     let scopeIndex = scopes.length - 1;
-    for (let i = tokens.tokens.length - 1; ; i--) {
+    for (let i = tokens2.tokens.length - 1; ; i--) {
       while (scopeStack.length > 0 && scopeStack[scopeStack.length - 1].startTokenIndex === i + 1) {
         scopeStack.pop();
       }
@@ -17942,11 +18385,11 @@ ${doc.documentElement.outerHTML}`;
       if (i < 0) {
         break;
       }
-      const token = tokens.tokens[i];
-      const name = tokens.identifierNameForToken(token);
+      const token = tokens2.tokens[i];
+      const name = tokens2.identifierNameForToken(token);
       if (scopeStack.length > 1 && !token.isType && token.type === TokenType.name && globalNames.has(name)) {
         if (isBlockScopedDeclaration(token)) {
-          markShadowedForScope(scopeStack[scopeStack.length - 1], tokens, name);
+          markShadowedForScope(scopeStack[scopeStack.length - 1], tokens2, name);
         } else if (isFunctionScopedDeclaration(token)) {
           let stackIndex = scopeStack.length - 1;
           while (stackIndex > 0 && !scopeStack[stackIndex].isFunctionScope) {
@@ -17955,7 +18398,7 @@ ${doc.documentElement.outerHTML}`;
           if (stackIndex < 0) {
             throw new Error("Did not find parent function scope.");
           }
-          markShadowedForScope(scopeStack[stackIndex], tokens, name);
+          markShadowedForScope(scopeStack[stackIndex], tokens2, name);
         }
       }
     }
@@ -17963,19 +18406,19 @@ ${doc.documentElement.outerHTML}`;
       throw new Error("Expected empty scope stack after processing file.");
     }
   }
-  function markShadowedForScope(scope, tokens, name) {
+  function markShadowedForScope(scope, tokens2, name) {
     for (let i = scope.startTokenIndex; i < scope.endTokenIndex; i++) {
-      const token = tokens.tokens[i];
-      if ((token.type === TokenType.name || token.type === TokenType.jsxName) && tokens.identifierNameForToken(token) === name) {
+      const token = tokens2.tokens[i];
+      if ((token.type === TokenType.name || token.type === TokenType.jsxName) && tokens2.identifierNameForToken(token) === name) {
         token.shadowsGlobal = true;
       }
     }
   }
 
   // node_modules/sucrase/dist/esm/util/getIdentifierNames.js
-  function getIdentifierNames(code, tokens) {
+  function getIdentifierNames(code, tokens2) {
     const names = [];
-    for (const token of tokens) {
+    for (const token of tokens2) {
       if (token.type === TokenType.name) {
         names.push(code.slice(token.start, token.end));
       }
@@ -17988,10 +18431,10 @@ ${doc.documentElement.outerHTML}`;
     __init() {
       this.usedNames = /* @__PURE__ */ new Set();
     }
-    constructor(code, tokens) {
+    constructor(code, tokens2) {
       ;
       _NameManager.prototype.__init.call(this);
-      this.usedNames = new Set(getIdentifierNames(code, tokens));
+      this.usedNames = new Set(getIdentifierNames(code, tokens2));
     }
     claimFreeName(name) {
       const newName = this.findFreeName(name);
@@ -21223,7 +21666,7 @@ ${doc.documentElement.outerHTML}`;
     if (state.scopeDepth !== 0) {
       throw new Error(`Invalid scope depth at end of file: ${state.scopeDepth}`);
     }
-    return new File(state.tokens, state.scopes);
+    return new File2(state.tokens, state.scopes);
   }
   function parseStatement(declaration) {
     if (isFlowEnabled) {
@@ -22184,9 +22627,9 @@ ${doc.documentElement.outerHTML}`;
   }
 
   // node_modules/sucrase/dist/esm/parser/index.js
-  var File = class {
-    constructor(tokens, scopes) {
-      this.tokens = tokens;
+  var File2 = class {
+    constructor(tokens2, scopes) {
+      this.tokens = tokens2;
       this.scopes = scopes;
     }
   };
@@ -22203,12 +22646,12 @@ ${doc.documentElement.outerHTML}`;
   }
 
   // node_modules/sucrase/dist/esm/util/isAsyncOperation.js
-  function isAsyncOperation(tokens) {
-    let index = tokens.currentIndex();
+  function isAsyncOperation(tokens2) {
+    let index = tokens2.currentIndex();
     let depth = 0;
-    const startToken = tokens.currentToken();
+    const startToken = tokens2.currentToken();
     do {
-      const token = tokens.tokens[index];
+      const token = tokens2.tokens[index];
       if (token.isOptionalChainStart) {
         depth++;
       }
@@ -22221,7 +22664,7 @@ ${doc.documentElement.outerHTML}`;
         return true;
       }
       index += 1;
-    } while (depth > 0 && index < tokens.tokens.length);
+    } while (depth > 0 && index < tokens2.tokens.length);
     return false;
   }
 
@@ -22238,10 +22681,10 @@ ${doc.documentElement.outerHTML}`;
     __init3() {
       this.tokenIndex = 0;
     }
-    constructor(code, tokens, isFlowEnabled2, disableESTransforms, helperManager) {
+    constructor(code, tokens2, isFlowEnabled2, disableESTransforms, helperManager) {
       ;
       this.code = code;
-      this.tokens = tokens;
+      this.tokens = tokens2;
       this.isFlowEnabled = isFlowEnabled2;
       this.disableESTransforms = disableESTransforms;
       this.helperManager = helperManager;
@@ -22508,76 +22951,76 @@ ${doc.documentElement.outerHTML}`;
   };
 
   // node_modules/sucrase/dist/esm/util/getClassInfo.js
-  function getClassInfo(rootTransformer, tokens, nameManager, disableESTransforms) {
-    const snapshot = tokens.snapshot();
-    const headerInfo = processClassHeader(tokens);
+  function getClassInfo(rootTransformer, tokens2, nameManager, disableESTransforms) {
+    const snapshot = tokens2.snapshot();
+    const headerInfo = processClassHeader(tokens2);
     let constructorInitializerStatements = [];
     const instanceInitializerNames = [];
     const staticInitializerNames = [];
     let constructorInsertPos = null;
     const fields = [];
     const rangesToRemove = [];
-    const classContextId = tokens.currentToken().contextId;
+    const classContextId = tokens2.currentToken().contextId;
     if (classContextId == null) {
       throw new Error("Expected non-null class context ID on class open-brace.");
     }
-    tokens.nextToken();
-    while (!tokens.matchesContextIdAndLabel(TokenType.braceR, classContextId)) {
-      if (tokens.matchesContextual(ContextualKeyword._constructor) && !tokens.currentToken().isType) {
-        ({ constructorInitializerStatements, constructorInsertPos } = processConstructor(tokens));
-      } else if (tokens.matches1(TokenType.semi)) {
+    tokens2.nextToken();
+    while (!tokens2.matchesContextIdAndLabel(TokenType.braceR, classContextId)) {
+      if (tokens2.matchesContextual(ContextualKeyword._constructor) && !tokens2.currentToken().isType) {
+        ({ constructorInitializerStatements, constructorInsertPos } = processConstructor(tokens2));
+      } else if (tokens2.matches1(TokenType.semi)) {
         if (!disableESTransforms) {
-          rangesToRemove.push({ start: tokens.currentIndex(), end: tokens.currentIndex() + 1 });
+          rangesToRemove.push({ start: tokens2.currentIndex(), end: tokens2.currentIndex() + 1 });
         }
-        tokens.nextToken();
-      } else if (tokens.currentToken().isType) {
-        tokens.nextToken();
+        tokens2.nextToken();
+      } else if (tokens2.currentToken().isType) {
+        tokens2.nextToken();
       } else {
-        const statementStartIndex = tokens.currentIndex();
+        const statementStartIndex = tokens2.currentIndex();
         let isStatic = false;
         let isESPrivate = false;
         let isDeclareOrAbstract = false;
-        while (isAccessModifier(tokens.currentToken())) {
-          if (tokens.matches1(TokenType._static)) {
+        while (isAccessModifier(tokens2.currentToken())) {
+          if (tokens2.matches1(TokenType._static)) {
             isStatic = true;
           }
-          if (tokens.matches1(TokenType.hash)) {
+          if (tokens2.matches1(TokenType.hash)) {
             isESPrivate = true;
           }
-          if (tokens.matches1(TokenType._declare) || tokens.matches1(TokenType._abstract)) {
+          if (tokens2.matches1(TokenType._declare) || tokens2.matches1(TokenType._abstract)) {
             isDeclareOrAbstract = true;
           }
-          tokens.nextToken();
+          tokens2.nextToken();
         }
-        if (isStatic && tokens.matches1(TokenType.braceL)) {
-          skipToNextClassElement(tokens, classContextId);
+        if (isStatic && tokens2.matches1(TokenType.braceL)) {
+          skipToNextClassElement(tokens2, classContextId);
           continue;
         }
         if (isESPrivate) {
-          skipToNextClassElement(tokens, classContextId);
+          skipToNextClassElement(tokens2, classContextId);
           continue;
         }
-        if (tokens.matchesContextual(ContextualKeyword._constructor) && !tokens.currentToken().isType) {
-          ({ constructorInitializerStatements, constructorInsertPos } = processConstructor(tokens));
+        if (tokens2.matchesContextual(ContextualKeyword._constructor) && !tokens2.currentToken().isType) {
+          ({ constructorInitializerStatements, constructorInsertPos } = processConstructor(tokens2));
           continue;
         }
-        const nameStartIndex = tokens.currentIndex();
-        skipFieldName(tokens);
-        if (tokens.matches1(TokenType.lessThan) || tokens.matches1(TokenType.parenL)) {
-          skipToNextClassElement(tokens, classContextId);
+        const nameStartIndex = tokens2.currentIndex();
+        skipFieldName(tokens2);
+        if (tokens2.matches1(TokenType.lessThan) || tokens2.matches1(TokenType.parenL)) {
+          skipToNextClassElement(tokens2, classContextId);
           continue;
         }
-        while (tokens.currentToken().isType) {
-          tokens.nextToken();
+        while (tokens2.currentToken().isType) {
+          tokens2.nextToken();
         }
-        if (tokens.matches1(TokenType.eq)) {
-          const equalsIndex = tokens.currentIndex();
-          const valueEnd = tokens.currentToken().rhsEndIndex;
+        if (tokens2.matches1(TokenType.eq)) {
+          const equalsIndex = tokens2.currentIndex();
+          const valueEnd = tokens2.currentToken().rhsEndIndex;
           if (valueEnd == null) {
             throw new Error("Expected rhsEndIndex on class field assignment.");
           }
-          tokens.nextToken();
-          while (tokens.currentIndex() < valueEnd) {
+          tokens2.nextToken();
+          while (tokens2.currentIndex() < valueEnd) {
             rootTransformer.processToken();
           }
           let initializerName;
@@ -22592,14 +23035,14 @@ ${doc.documentElement.outerHTML}`;
             initializerName,
             equalsIndex,
             start: nameStartIndex,
-            end: tokens.currentIndex()
+            end: tokens2.currentIndex()
           });
         } else if (!disableESTransforms || isDeclareOrAbstract) {
-          rangesToRemove.push({ start: statementStartIndex, end: tokens.currentIndex() });
+          rangesToRemove.push({ start: statementStartIndex, end: tokens2.currentIndex() });
         }
       }
     }
-    tokens.restoreToSnapshot(snapshot);
+    tokens2.restoreToSnapshot(snapshot);
     if (disableESTransforms) {
       return {
         headerInfo,
@@ -22622,17 +23065,17 @@ ${doc.documentElement.outerHTML}`;
       };
     }
   }
-  function skipToNextClassElement(tokens, classContextId) {
-    tokens.nextToken();
-    while (tokens.currentToken().contextId !== classContextId) {
-      tokens.nextToken();
+  function skipToNextClassElement(tokens2, classContextId) {
+    tokens2.nextToken();
+    while (tokens2.currentToken().contextId !== classContextId) {
+      tokens2.nextToken();
     }
-    while (isAccessModifier(tokens.tokenAtRelativeIndex(-1))) {
-      tokens.previousToken();
+    while (isAccessModifier(tokens2.tokenAtRelativeIndex(-1))) {
+      tokens2.previousToken();
     }
   }
-  function processClassHeader(tokens) {
-    const classToken = tokens.currentToken();
+  function processClassHeader(tokens2) {
+    const classToken = tokens2.currentToken();
     const contextId = classToken.contextId;
     if (contextId == null) {
       throw new Error("Expected context ID on class token.");
@@ -22643,66 +23086,66 @@ ${doc.documentElement.outerHTML}`;
     }
     let className = null;
     let hasSuperclass = false;
-    tokens.nextToken();
-    if (tokens.matches1(TokenType.name)) {
-      className = tokens.identifierName();
+    tokens2.nextToken();
+    if (tokens2.matches1(TokenType.name)) {
+      className = tokens2.identifierName();
     }
-    while (!tokens.matchesContextIdAndLabel(TokenType.braceL, contextId)) {
-      if (tokens.matches1(TokenType._extends) && !tokens.currentToken().isType) {
+    while (!tokens2.matchesContextIdAndLabel(TokenType.braceL, contextId)) {
+      if (tokens2.matches1(TokenType._extends) && !tokens2.currentToken().isType) {
         hasSuperclass = true;
       }
-      tokens.nextToken();
+      tokens2.nextToken();
     }
     return { isExpression, className, hasSuperclass };
   }
-  function processConstructor(tokens) {
+  function processConstructor(tokens2) {
     const constructorInitializerStatements = [];
-    tokens.nextToken();
-    const constructorContextId = tokens.currentToken().contextId;
+    tokens2.nextToken();
+    const constructorContextId = tokens2.currentToken().contextId;
     if (constructorContextId == null) {
       throw new Error("Expected context ID on open-paren starting constructor params.");
     }
-    while (!tokens.matchesContextIdAndLabel(TokenType.parenR, constructorContextId)) {
-      if (tokens.currentToken().contextId === constructorContextId) {
-        tokens.nextToken();
-        if (isAccessModifier(tokens.currentToken())) {
-          tokens.nextToken();
-          while (isAccessModifier(tokens.currentToken())) {
-            tokens.nextToken();
+    while (!tokens2.matchesContextIdAndLabel(TokenType.parenR, constructorContextId)) {
+      if (tokens2.currentToken().contextId === constructorContextId) {
+        tokens2.nextToken();
+        if (isAccessModifier(tokens2.currentToken())) {
+          tokens2.nextToken();
+          while (isAccessModifier(tokens2.currentToken())) {
+            tokens2.nextToken();
           }
-          const token = tokens.currentToken();
+          const token = tokens2.currentToken();
           if (token.type !== TokenType.name) {
             throw new Error("Expected identifier after access modifiers in constructor arg.");
           }
-          const name = tokens.identifierNameForToken(token);
+          const name = tokens2.identifierNameForToken(token);
           constructorInitializerStatements.push(`this.${name} = ${name}`);
         }
       } else {
-        tokens.nextToken();
+        tokens2.nextToken();
       }
     }
-    tokens.nextToken();
-    while (tokens.currentToken().isType) {
-      tokens.nextToken();
+    tokens2.nextToken();
+    while (tokens2.currentToken().isType) {
+      tokens2.nextToken();
     }
-    let constructorInsertPos = tokens.currentIndex();
+    let constructorInsertPos = tokens2.currentIndex();
     let foundSuperCall = false;
-    while (!tokens.matchesContextIdAndLabel(TokenType.braceR, constructorContextId)) {
-      if (!foundSuperCall && tokens.matches2(TokenType._super, TokenType.parenL)) {
-        tokens.nextToken();
-        const superCallContextId = tokens.currentToken().contextId;
+    while (!tokens2.matchesContextIdAndLabel(TokenType.braceR, constructorContextId)) {
+      if (!foundSuperCall && tokens2.matches2(TokenType._super, TokenType.parenL)) {
+        tokens2.nextToken();
+        const superCallContextId = tokens2.currentToken().contextId;
         if (superCallContextId == null) {
           throw new Error("Expected a context ID on the super call");
         }
-        while (!tokens.matchesContextIdAndLabel(TokenType.parenR, superCallContextId)) {
-          tokens.nextToken();
+        while (!tokens2.matchesContextIdAndLabel(TokenType.parenR, superCallContextId)) {
+          tokens2.nextToken();
         }
-        constructorInsertPos = tokens.currentIndex();
+        constructorInsertPos = tokens2.currentIndex();
         foundSuperCall = true;
       }
-      tokens.nextToken();
+      tokens2.nextToken();
     }
-    tokens.nextToken();
+    tokens2.nextToken();
     return { constructorInitializerStatements, constructorInsertPos };
   }
   function isAccessModifier(token) {
@@ -22724,36 +23167,36 @@ ${doc.documentElement.outerHTML}`;
       TokenType.hash
     ].includes(token.type);
   }
-  function skipFieldName(tokens) {
-    if (tokens.matches1(TokenType.bracketL)) {
-      const startToken = tokens.currentToken();
+  function skipFieldName(tokens2) {
+    if (tokens2.matches1(TokenType.bracketL)) {
+      const startToken = tokens2.currentToken();
       const classContextId = startToken.contextId;
       if (classContextId == null) {
         throw new Error("Expected class context ID on computed name open bracket.");
       }
-      while (!tokens.matchesContextIdAndLabel(TokenType.bracketR, classContextId)) {
-        tokens.nextToken();
+      while (!tokens2.matchesContextIdAndLabel(TokenType.bracketR, classContextId)) {
+        tokens2.nextToken();
       }
-      tokens.nextToken();
+      tokens2.nextToken();
     } else {
-      tokens.nextToken();
+      tokens2.nextToken();
     }
   }
 
   // node_modules/sucrase/dist/esm/util/elideImportEquals.js
-  function elideImportEquals(tokens) {
-    tokens.removeInitialToken();
-    tokens.removeToken();
-    tokens.removeToken();
-    tokens.removeToken();
-    if (tokens.matches1(TokenType.parenL)) {
-      tokens.removeToken();
-      tokens.removeToken();
-      tokens.removeToken();
+  function elideImportEquals(tokens2) {
+    tokens2.removeInitialToken();
+    tokens2.removeToken();
+    tokens2.removeToken();
+    tokens2.removeToken();
+    if (tokens2.matches1(TokenType.parenL)) {
+      tokens2.removeToken();
+      tokens2.removeToken();
+      tokens2.removeToken();
     } else {
-      while (tokens.matches1(TokenType.dot)) {
-        tokens.removeToken();
-        tokens.removeToken();
+      while (tokens2.matches1(TokenType.dot)) {
+        tokens2.removeToken();
+        tokens2.removeToken();
       }
     }
   }
@@ -22763,16 +23206,16 @@ ${doc.documentElement.outerHTML}`;
     typeDeclarations: /* @__PURE__ */ new Set(),
     valueDeclarations: /* @__PURE__ */ new Set()
   };
-  function getDeclarationInfo(tokens) {
+  function getDeclarationInfo(tokens2) {
     const typeDeclarations = /* @__PURE__ */ new Set();
     const valueDeclarations = /* @__PURE__ */ new Set();
-    for (let i = 0; i < tokens.tokens.length; i++) {
-      const token = tokens.tokens[i];
+    for (let i = 0; i < tokens2.tokens.length; i++) {
+      const token = tokens2.tokens[i];
       if (token.type === TokenType.name && isTopLevelDeclaration(token)) {
         if (token.isType) {
-          typeDeclarations.add(tokens.identifierNameForToken(token));
+          typeDeclarations.add(tokens2.identifierNameForToken(token));
         } else {
-          valueDeclarations.add(tokens.identifierNameForToken(token));
+          valueDeclarations.add(tokens2.identifierNameForToken(token));
         }
       }
     }
@@ -22780,42 +23223,42 @@ ${doc.documentElement.outerHTML}`;
   }
 
   // node_modules/sucrase/dist/esm/util/isExportFrom.js
-  function isExportFrom(tokens) {
-    let closeBraceIndex = tokens.currentIndex();
-    while (!tokens.matches1AtIndex(closeBraceIndex, TokenType.braceR)) {
+  function isExportFrom(tokens2) {
+    let closeBraceIndex = tokens2.currentIndex();
+    while (!tokens2.matches1AtIndex(closeBraceIndex, TokenType.braceR)) {
       closeBraceIndex++;
     }
-    return tokens.matchesContextualAtIndex(closeBraceIndex + 1, ContextualKeyword._from) && tokens.matches1AtIndex(closeBraceIndex + 2, TokenType.string);
+    return tokens2.matchesContextualAtIndex(closeBraceIndex + 1, ContextualKeyword._from) && tokens2.matches1AtIndex(closeBraceIndex + 2, TokenType.string);
   }
 
   // node_modules/sucrase/dist/esm/util/removeMaybeImportAttributes.js
-  function removeMaybeImportAttributes(tokens) {
-    if (tokens.matches2(TokenType._with, TokenType.braceL) || tokens.matches2(TokenType.name, TokenType.braceL) && tokens.matchesContextual(ContextualKeyword._assert)) {
-      tokens.removeToken();
-      tokens.removeToken();
-      tokens.removeBalancedCode();
-      tokens.removeToken();
+  function removeMaybeImportAttributes(tokens2) {
+    if (tokens2.matches2(TokenType._with, TokenType.braceL) || tokens2.matches2(TokenType.name, TokenType.braceL) && tokens2.matchesContextual(ContextualKeyword._assert)) {
+      tokens2.removeToken();
+      tokens2.removeToken();
+      tokens2.removeBalancedCode();
+      tokens2.removeToken();
     }
   }
 
   // node_modules/sucrase/dist/esm/util/shouldElideDefaultExport.js
-  function shouldElideDefaultExport(isTypeScriptTransformEnabled, keepUnusedImports, tokens, declarationInfo) {
+  function shouldElideDefaultExport(isTypeScriptTransformEnabled, keepUnusedImports, tokens2, declarationInfo) {
     if (!isTypeScriptTransformEnabled || keepUnusedImports) {
       return false;
     }
-    const exportToken = tokens.currentToken();
+    const exportToken = tokens2.currentToken();
     if (exportToken.rhsEndIndex == null) {
       throw new Error("Expected non-null rhsEndIndex on export token.");
     }
-    const numTokens = exportToken.rhsEndIndex - tokens.currentIndex();
-    if (numTokens !== 3 && !(numTokens === 4 && tokens.matches1AtIndex(exportToken.rhsEndIndex - 1, TokenType.semi))) {
+    const numTokens = exportToken.rhsEndIndex - tokens2.currentIndex();
+    if (numTokens !== 3 && !(numTokens === 4 && tokens2.matches1AtIndex(exportToken.rhsEndIndex - 1, TokenType.semi))) {
       return false;
     }
-    const identifierToken = tokens.tokenAtRelativeIndex(2);
+    const identifierToken = tokens2.tokenAtRelativeIndex(2);
     if (identifierToken.type !== TokenType.name) {
       return false;
     }
-    const exportedName = tokens.identifierNameForToken(identifierToken);
+    const exportedName = tokens2.identifierNameForToken(identifierToken);
     return declarationInfo.typeDeclarations.has(exportedName) && !declarationInfo.valueDeclarations.has(exportedName);
   }
 
@@ -22830,10 +23273,10 @@ ${doc.documentElement.outerHTML}`;
     __init3() {
       this.hadDefaultExport = false;
     }
-    constructor(rootTransformer, tokens, importProcessor, nameManager, helperManager, reactHotLoaderTransformer, enableLegacyBabel5ModuleInterop, enableLegacyTypeScriptModuleInterop, isTypeScriptTransformEnabled, isFlowTransformEnabled, preserveDynamicImport, keepUnusedImports) {
+    constructor(rootTransformer, tokens2, importProcessor, nameManager, helperManager, reactHotLoaderTransformer, enableLegacyBabel5ModuleInterop, enableLegacyTypeScriptModuleInterop, isTypeScriptTransformEnabled, isFlowTransformEnabled, preserveDynamicImport, keepUnusedImports) {
       super();
       this.rootTransformer = rootTransformer;
-      this.tokens = tokens;
+      this.tokens = tokens2;
       this.importProcessor = importProcessor;
       this.nameManager = nameManager;
       this.helperManager = helperManager;
@@ -22848,7 +23291,7 @@ ${doc.documentElement.outerHTML}`;
       _CJSImportTransformer.prototype.__init2.call(this);
       _CJSImportTransformer.prototype.__init3.call(this);
       ;
-      this.declarationInfo = isTypeScriptTransformEnabled ? getDeclarationInfo(tokens) : EMPTY_DECLARATION_INFO;
+      this.declarationInfo = isTypeScriptTransformEnabled ? getDeclarationInfo(tokens2) : EMPTY_DECLARATION_INFO;
     }
     getPrefixCode() {
       let prefix = "";
@@ -23328,7 +23771,7 @@ ${doc.documentElement.outerHTML}`;
     processSimpleExportVar() {
       this.tokens.removeInitialToken();
       this.tokens.copyToken();
-      const varName = this.tokens.identifierName();
+      const varName2 = this.tokens.identifierName();
       while (!this.tokens.matches1(TokenType.eq)) {
         this.rootTransformer.processToken();
       }
@@ -23339,7 +23782,7 @@ ${doc.documentElement.outerHTML}`;
       while (this.tokens.currentIndex() < endIndex) {
         this.rootTransformer.processToken();
       }
-      this.tokens.appendCode(`; exports.${varName} = ${varName}`);
+      this.tokens.appendCode(`; exports.${varName2} = ${varName2}`);
     }
     /**
      * Transform normal declaration exports, including handling destructuring.
@@ -23549,9 +23992,9 @@ ${doc.documentElement.outerHTML}`;
 
   // node_modules/sucrase/dist/esm/transformers/ESMImportTransformer.js
   var ESMImportTransformer = class extends Transformer {
-    constructor(tokens, nameManager, helperManager, reactHotLoaderTransformer, isTypeScriptTransformEnabled, isFlowTransformEnabled, keepUnusedImports, options) {
+    constructor(tokens2, nameManager, helperManager, reactHotLoaderTransformer, isTypeScriptTransformEnabled, isFlowTransformEnabled, keepUnusedImports, options) {
       super();
-      this.tokens = tokens;
+      this.tokens = tokens2;
       this.nameManager = nameManager;
       this.helperManager = helperManager;
       this.reactHotLoaderTransformer = reactHotLoaderTransformer;
@@ -23559,8 +24002,8 @@ ${doc.documentElement.outerHTML}`;
       this.isFlowTransformEnabled = isFlowTransformEnabled;
       this.keepUnusedImports = keepUnusedImports;
       ;
-      this.nonTypeIdentifiers = isTypeScriptTransformEnabled && !keepUnusedImports ? getNonTypeIdentifiers(tokens, options) : /* @__PURE__ */ new Set();
-      this.declarationInfo = isTypeScriptTransformEnabled && !keepUnusedImports ? getDeclarationInfo(tokens) : EMPTY_DECLARATION_INFO;
+      this.nonTypeIdentifiers = isTypeScriptTransformEnabled && !keepUnusedImports ? getNonTypeIdentifiers(tokens2, options) : /* @__PURE__ */ new Set();
+      this.declarationInfo = isTypeScriptTransformEnabled && !keepUnusedImports ? getDeclarationInfo(tokens2) : EMPTY_DECLARATION_INFO;
       this.injectCreateRequireForImportRequire = Boolean(options.injectCreateRequireForImportRequire);
     }
     process() {
@@ -23826,10 +24269,10 @@ ${doc.documentElement.outerHTML}`;
 
   // node_modules/sucrase/dist/esm/transformers/FlowTransformer.js
   var FlowTransformer = class extends Transformer {
-    constructor(rootTransformer, tokens, isImportsTransformEnabled) {
+    constructor(rootTransformer, tokens2, isImportsTransformEnabled) {
       super();
       this.rootTransformer = rootTransformer;
-      this.tokens = tokens;
+      this.tokens = tokens2;
       this.isImportsTransformEnabled = isImportsTransformEnabled;
       ;
     }
@@ -24006,10 +24449,10 @@ ${doc.documentElement.outerHTML}`;
     __init() {
       this.hoistedFunctionNames = [];
     }
-    constructor(rootTransformer, tokens, nameManager, importProcessor) {
+    constructor(rootTransformer, tokens2, nameManager, importProcessor) {
       super();
       this.rootTransformer = rootTransformer;
-      this.tokens = tokens;
+      this.tokens = tokens2;
       this.nameManager = nameManager;
       this.importProcessor = importProcessor;
       _JestHoistTransformer.prototype.__init.call(this);
@@ -24073,9 +24516,9 @@ ${doc.documentElement.outerHTML}`;
 
   // node_modules/sucrase/dist/esm/transformers/NumericSeparatorTransformer.js
   var NumericSeparatorTransformer = class extends Transformer {
-    constructor(tokens) {
+    constructor(tokens2) {
       super();
-      this.tokens = tokens;
+      this.tokens = tokens2;
       ;
     }
     process() {
@@ -24092,9 +24535,9 @@ ${doc.documentElement.outerHTML}`;
 
   // node_modules/sucrase/dist/esm/transformers/OptionalCatchBindingTransformer.js
   var OptionalCatchBindingTransformer = class extends Transformer {
-    constructor(tokens, nameManager) {
+    constructor(tokens2, nameManager) {
       super();
-      this.tokens = tokens;
+      this.tokens = tokens2;
       this.nameManager = nameManager;
       ;
     }
@@ -24110,9 +24553,9 @@ ${doc.documentElement.outerHTML}`;
 
   // node_modules/sucrase/dist/esm/transformers/OptionalChainingNullishTransformer.js
   var OptionalChainingNullishTransformer = class extends Transformer {
-    constructor(tokens, nameManager) {
+    constructor(tokens2, nameManager) {
       super();
-      this.tokens = tokens;
+      this.tokens = tokens2;
       this.nameManager = nameManager;
       ;
     }
@@ -24235,10 +24678,10 @@ ${doc.documentElement.outerHTML}`;
 
   // node_modules/sucrase/dist/esm/transformers/ReactDisplayNameTransformer.js
   var ReactDisplayNameTransformer = class extends Transformer {
-    constructor(rootTransformer, tokens, importProcessor, options) {
+    constructor(rootTransformer, tokens2, importProcessor, options) {
       super();
       this.rootTransformer = rootTransformer;
-      this.tokens = tokens;
+      this.tokens = tokens2;
       this.importProcessor = importProcessor;
       this.options = options;
       ;
@@ -24352,9 +24795,9 @@ ${doc.documentElement.outerHTML}`;
     __init() {
       this.extractedDefaultExportName = null;
     }
-    constructor(tokens, filePath) {
+    constructor(tokens2, filePath) {
       super();
-      this.tokens = tokens;
+      this.tokens = tokens2;
       this.filePath = filePath;
       _ReactHotLoaderTransformer.prototype.__init.call(this);
       ;
@@ -24475,10 +24918,10 @@ ${namesToRegister.map(
 
   // node_modules/sucrase/dist/esm/transformers/TypeScriptTransformer.js
   var TypeScriptTransformer = class extends Transformer {
-    constructor(rootTransformer, tokens, isImportsTransformEnabled) {
+    constructor(rootTransformer, tokens2, isImportsTransformEnabled) {
       super();
       this.rootTransformer = rootTransformer;
-      this.tokens = tokens;
+      this.tokens = tokens2;
       this.isImportsTransformEnabled = isImportsTransformEnabled;
       ;
     }
@@ -25084,55 +25527,55 @@ ${namesToRegister.map(
   var import_lines_and_columns = __toESM(require_build());
 
   // node_modules/sucrase/dist/esm/util/getTSImportedNames.js
-  function getTSImportedNames(tokens) {
+  function getTSImportedNames(tokens2) {
     const importedNames = /* @__PURE__ */ new Set();
-    for (let i = 0; i < tokens.tokens.length; i++) {
-      if (tokens.matches1AtIndex(i, TokenType._import) && !tokens.matches3AtIndex(i, TokenType._import, TokenType.name, TokenType.eq)) {
-        collectNamesForImport(tokens, i, importedNames);
+    for (let i = 0; i < tokens2.tokens.length; i++) {
+      if (tokens2.matches1AtIndex(i, TokenType._import) && !tokens2.matches3AtIndex(i, TokenType._import, TokenType.name, TokenType.eq)) {
+        collectNamesForImport(tokens2, i, importedNames);
       }
     }
     return importedNames;
   }
-  function collectNamesForImport(tokens, index, importedNames) {
+  function collectNamesForImport(tokens2, index, importedNames) {
     index++;
-    if (tokens.matches1AtIndex(index, TokenType.parenL)) {
+    if (tokens2.matches1AtIndex(index, TokenType.parenL)) {
       return;
     }
-    if (tokens.matches1AtIndex(index, TokenType.name)) {
-      importedNames.add(tokens.identifierNameAtIndex(index));
+    if (tokens2.matches1AtIndex(index, TokenType.name)) {
+      importedNames.add(tokens2.identifierNameAtIndex(index));
       index++;
-      if (tokens.matches1AtIndex(index, TokenType.comma)) {
+      if (tokens2.matches1AtIndex(index, TokenType.comma)) {
         index++;
       }
     }
-    if (tokens.matches1AtIndex(index, TokenType.star)) {
+    if (tokens2.matches1AtIndex(index, TokenType.star)) {
       index += 2;
-      importedNames.add(tokens.identifierNameAtIndex(index));
+      importedNames.add(tokens2.identifierNameAtIndex(index));
       index++;
     }
-    if (tokens.matches1AtIndex(index, TokenType.braceL)) {
+    if (tokens2.matches1AtIndex(index, TokenType.braceL)) {
       index++;
-      collectNamesForNamedImport(tokens, index, importedNames);
+      collectNamesForNamedImport(tokens2, index, importedNames);
     }
   }
-  function collectNamesForNamedImport(tokens, index, importedNames) {
+  function collectNamesForNamedImport(tokens2, index, importedNames) {
     while (true) {
-      if (tokens.matches1AtIndex(index, TokenType.braceR)) {
+      if (tokens2.matches1AtIndex(index, TokenType.braceR)) {
         return;
       }
-      const specifierInfo = getImportExportSpecifierInfo(tokens, index);
+      const specifierInfo = getImportExportSpecifierInfo(tokens2, index);
       index = specifierInfo.endIndex;
       if (!specifierInfo.isType) {
         importedNames.add(specifierInfo.rightName);
       }
-      if (tokens.matches2AtIndex(index, TokenType.comma, TokenType.braceR)) {
+      if (tokens2.matches2AtIndex(index, TokenType.comma, TokenType.braceR)) {
         return;
-      } else if (tokens.matches1AtIndex(index, TokenType.braceR)) {
+      } else if (tokens2.matches1AtIndex(index, TokenType.braceR)) {
         return;
-      } else if (tokens.matches1AtIndex(index, TokenType.comma)) {
+      } else if (tokens2.matches1AtIndex(index, TokenType.comma)) {
         index++;
       } else {
-        throw new Error(`Unexpected token: ${JSON.stringify(tokens.tokens[index])}`);
+        throw new Error(`Unexpected token: ${JSON.stringify(tokens2.tokens[index])}`);
       }
     }
   }
@@ -25179,13 +25622,13 @@ ${namesToRegister.map(
     const isFlowEnabled2 = options.transforms.includes("flow");
     const disableESTransforms = options.disableESTransforms === true;
     const file = parse2(code, isJSXEnabled2, isTypeScriptEnabled2, isFlowEnabled2);
-    const tokens = file.tokens;
+    const tokens2 = file.tokens;
     const scopes = file.scopes;
-    const nameManager = new NameManager(code, tokens);
+    const nameManager = new NameManager(code, tokens2);
     const helperManager = new HelperManager(nameManager);
     const tokenProcessor = new TokenProcessor(
       code,
-      tokens,
+      tokens2,
       isFlowEnabled2,
       disableESTransforms,
       helperManager
@@ -31465,10 +31908,23 @@ Defaulting to 2020, but this will stop working in the future.`)), t2.ecmaVersion
     return out;
   }
   var parser = null;
-  var read2 = (code) => (parser ??= new Kt({ ecmaVer: "latest", sandBox: false })).parse(code);
+  var read3 = (code) => (parser ??= new Kt({ ecmaVer: "latest", sandBox: false })).parse(code);
+  function codeProblem(code) {
+    let tree;
+    try {
+      tree = read3(code);
+    } catch (e) {
+      return e instanceof Error ? e.message : String(e);
+    }
+    let found = null;
+    walk(tree, (n) => {
+      if (!found && (n.type === "ImportExpression" || n.type === "ImportDeclaration")) found = t("import is not allowed here", "여기서는 import를 쓸 수 없어요");
+    });
+    return found;
+  }
   function guardLoops(code) {
     const edits2 = [];
-    walk(read2(code), (n) => {
+    walk(read3(code), (n) => {
       if (!LOOPS.has(n.type)) return;
       const body = n.body;
       if (body.type === "BlockStatement") edits2.push({ at: body.start + 1, remove: 0, text: `${TICK}();` });
@@ -31491,7 +31947,7 @@ Defaulting to 2020, but this will stop working in the future.`)), t2.ecmaVersion
     const edits2 = [];
     const hoisted = [];
     const names = [];
-    for (const n of read2(code).body ?? []) {
+    for (const n of read3(code).body ?? []) {
       if (n.type === "VariableDeclaration") {
         for (const d2 of n.declarations) patternNames(d2.id, names);
         if (n.kind !== "var") edits2.push({ at: n.start, remove: String(n.kind).length, text: "var" });
@@ -31533,19 +31989,19 @@ ${body}` : body, names };
     for (const m2 of code.matchAll(/@import\s+(?:url\(\s*)?["']?(https:\/\/[^"')\s;]+)["']?\s*\)?/gi)) urls.add(m2[1]);
     return [...urls];
   }
-  function fontFaces(text, base) {
+  function fontFaces(text2, base) {
     const out = [];
-    const unquote = (v) => v.trim().replace(/^["']|["']$/g, "");
-    for (const m2 of text.matchAll(/@font-face\s*\{([^}]*)\}/gi)) {
+    const unquote2 = (v) => v.trim().replace(/^["']|["']$/g, "");
+    for (const m2 of text2.matchAll(/@font-face\s*\{([^}]*)\}/gi)) {
       const body = m2[1];
       const prop = (name) => new RegExp(`(?:^|;)\\s*${name}\\s*:\\s*([^;]+)`, "i").exec(body)?.[1]?.trim();
       const family = prop("font-family");
-      const sources2 = [...(prop("src") ?? "").matchAll(/url\(\s*([^)]+?)\s*\)(?:\s*format\(\s*["']?([\w-]+)["']?\s*\))?/gi)].map((s) => ({ url: unquote(s[1]), format: (s[2] ?? "").toLowerCase() }));
-      const pick = sources2.find((s) => s.format === "woff2") ?? sources2.find((s) => s.format === "woff") ?? sources2[0];
-      if (!family || !pick) continue;
+      const sources2 = [...(prop("src") ?? "").matchAll(/url\(\s*([^)]+?)\s*\)(?:\s*format\(\s*["']?([\w-]+)["']?\s*\))?/gi)].map((s) => ({ url: unquote2(s[1]), format: (s[2] ?? "").toLowerCase() }));
+      const pick2 = sources2.find((s) => s.format === "woff2") ?? sources2.find((s) => s.format === "woff") ?? sources2[0];
+      if (!family || !pick2) continue;
       let url;
       try {
-        url = new URL(pick.url, base).href;
+        url = new URL(pick2.url, base).href;
       } catch {
         continue;
       }
@@ -31567,15 +32023,15 @@ ${body}` : body, names };
           ranges.push([parseInt(a, 16), parseInt(b2 ?? a, 16)]);
         }
       }
-      out.push({ family: unquote(family), url, descriptors, ranges });
+      out.push({ family: unquote2(family), url, descriptors, ranges });
     }
     return out;
   }
   async function loadSheet(url) {
     const res = await fetch(url, { credentials: "omit", referrerPolicy: "no-referrer" });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const text = await res.text();
-    const css = text.replace(/@font-face\s*\{[^}]*\}/gi, "").replace(/url\(\s*([^)]+?)\s*\)/gi, (whole, u) => {
+    const text2 = await res.text();
+    const css = text2.replace(/@font-face\s*\{[^}]*\}/gi, "").replace(/url\(\s*([^)]+?)\s*\)/gi, (whole, u) => {
       const clean = u.trim().replace(/^["']|["']$/g, "");
       if (/^data:/i.test(clean)) return whole;
       try {
@@ -31584,7 +32040,7 @@ ${body}` : body, names };
         return whole;
       }
     });
-    return { css, faces: fontFaces(text, url) };
+    return { css, faces: fontFaces(text2, url) };
   }
   function sheet(url) {
     let found = sheets.get(url);
@@ -31603,9 +32059,9 @@ ${body}` : body, names };
     }
     return found;
   }
-  function codePoints(text) {
+  function codePoints(text2) {
     const out = /* @__PURE__ */ new Set();
-    for (const ch of text) out.add(ch.codePointAt(0));
+    for (const ch of text2) out.add(ch.codePointAt(0));
     return out;
   }
   var covers = (face, points) => !face.ranges.length || [...points].some((p2) => face.ranges.some(([a, b2]) => p2 >= a && p2 <= b2));
@@ -31649,10 +32105,10 @@ ${body}` : body, names };
     const known = new Set(fonts.faces.map((f) => `${f.family}|${f.url}`));
     for (const f of faces) if (!known.has(`${f.family}|${f.url}`)) fonts.faces.push(f);
   }
-  async function loadFontsFor(doc, text) {
+  async function loadFontsFor(doc, text2) {
     const fonts = perDoc.get(doc);
     if (!fonts?.faces.length) return;
-    const points = codePoints(text);
+    const points = codePoints(text2);
     const wanted = fonts.faces.filter((f) => !fonts.added.has(f.url) && covers(f, points));
     for (const f of wanted) fonts.added.add(f.url);
     const FontFaceCtor = doc.defaultView?.FontFace ?? FontFace;
@@ -31783,11 +32239,11 @@ ${body}` : body, names };
       if (typeof handler !== "function") return 0;
       let id = 0;
       const call = caught(handler);
-      const run = once ? (...a) => {
+      const run2 = once ? (...a) => {
         timers.delete(id);
         call(...a);
       } : call;
-      id = fn(run, ms2, ...rest);
+      id = fn(run2, ms2, ...rest);
       timers.add(id);
       return id;
     };
@@ -31893,7 +32349,7 @@ ${body}` : body, names };
     { names: ["z"], used: /(?:^|[^\w$.])z\s*\.\s*[a-z]/, own: /\bzod\b/i, url: "https://cdn.jsdelivr.net/npm/zod@3.23.8/+esm", pick: (e) => e.z ?? e },
     { names: ["YAML"], used: /(?:^|[^\w$.])YAML\s*\./, own: /\byaml\b/i, url: "https://cdn.jsdelivr.net/npm/yaml@2.5.0/+esm", pick: (e) => e.default ?? e }
   ];
-  var escape2 = (text) => RegExp.escape?.(text) ?? text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  var escape2 = (text2) => RegExp.escape?.(text2) ?? text2.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   var declares = (code, name) => new RegExp(`\\b(?:const|let|var|function|class)\\s+${escape2(name)}(?![\\w$])`).test(code) || new RegExp(`^\\s*(?:window\\.)?${escape2(name)}\\s*=(?!=)`, "m").test(code);
   var builtinsFor = (code, sources2 = []) => BUILTINS.filter((b2) => b2.used.test(code) && !sources2.some((src) => b2.own.test(src)) && !b2.names.some((n) => declares(code, n)));
   var KNOWN = [{ test: /MagVarUpdate/i, name: "MVU (MagVarUpdate)" }];
@@ -31927,9 +32383,9 @@ ${body}` : body, names };
     sources.clear();
   }
   function fetchSource(url) {
-    let text = sources.get(url);
-    if (!text) {
-      text = (async () => {
+    let text2 = sources.get(url);
+    if (!text2) {
+      text2 = (async () => {
         const known = KNOWN.find((k2) => k2.test.test(url));
         if (known) throw new Unsupported(t(`Not supported: ${known.name}`, `지원 안 함: ${known.name}`));
         const href = new URL(url);
@@ -31938,14 +32394,14 @@ ${body}` : body, names };
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         return res.text();
       })();
-      sources.set(url, text);
-      text.catch(() => sources.delete(url));
+      sources.set(url, text2);
+      text2.catch(() => sources.delete(url));
     }
-    return text;
+    return text2;
   }
   var ModuleSystem = class {
-    constructor(run, report) {
-      this.run = run;
+    constructor(run2, report) {
+      this.run = run2;
       this.report = report;
     }
     loaded = /* @__PURE__ */ new Map();
@@ -31962,17 +32418,17 @@ ${body}` : body, names };
     load(url) {
       let found = this.loaded.get(url);
       if (!found) {
-        found = fetchSource(url).then((text) => isModuleCode(text) ? this.parse(text, url) : { url, kind: "script", code: text, deps: /* @__PURE__ */ new Map(), named: /* @__PURE__ */ new Set() });
+        found = fetchSource(url).then((text2) => isModuleCode(text2) ? this.parse(text2, url) : { url, kind: "script", code: text2, deps: /* @__PURE__ */ new Map(), named: /* @__PURE__ */ new Set() });
         this.loaded.set(url, found);
       }
       return found;
     }
     /** A module's own parse: what it imports is named, not fetched yet. */
-    parse(text, url) {
-      const refs = importsOf(text);
+    parse(text2, url) {
+      const refs = importsOf(text2);
       const deps = /* @__PURE__ */ new Map();
       for (const r of refs) deps.set(r.spec, resolveSpec(r.spec, url));
-      return { url: url ?? `inline:${this.next++}`, kind: "module", code: toCommonJs(text), deps, named: new Set(refs.filter((r) => r.named).map((r) => r.spec)) };
+      return { url: url ?? `inline:${this.next++}`, kind: "module", code: toCommonJs(text2), deps, named: new Set(refs.filter((r) => r.named).map((r) => r.spec)) };
     }
     /** Fetches everything under a module, each address once (a cycle is fine); one that fails is reported and imports as empty. */
     async fetchAll(item2, seen2 = /* @__PURE__ */ new Set()) {
@@ -32037,7 +32493,7 @@ ${code}
       await this.fetchAll(item2);
       return this.evaluate(item2, true);
     }
-    /** Puts the Tavern Helper libraries `code` uses into the scope (`define`); one that fails to load is reported. */
+    /** Puts the libraries `code` uses into the scope (`define`); one that fails to load is reported. */
     async builtins(code, sources2, define, report) {
       await Promise.all(
         builtinsFor(code, sources2).map(async (b2) => {
@@ -32225,14 +32681,14 @@ ${code}
       let faint = 0;
       const walker = doc.createTreeWalker(doc.body, NodeFilter.SHOW_TEXT);
       for (let node = walker.nextNode(), seen2 = 0; node && seen2 < 400; node = walker.nextNode(), seen2++) {
-        const text = node.textContent?.trim().length ?? 0;
+        const text2 = node.textContent?.trim().length ?? 0;
         const el2 = node.parentElement;
-        if (!text || !el2 || !behind || isCovered(el2)) continue;
+        if (!text2 || !el2 || !behind || isCovered(el2)) continue;
         const cs2 = view.getComputedStyle(el2);
         const color = rgba(el2 instanceof view.SVGElement ? cs2.fill : cs2.color);
         if (!color || color[3] === 0 || !el2.getClientRects().length) continue;
-        total += text;
-        if (contrast(color, behind) < 2.5) faint += text;
+        total += text2;
+        if (contrast(color, behind) < 2.5) faint += text2;
       }
       const want = total && faint / total > 0.3 ? luminance(behind) < 0.4 ? "#ffffff" : "#16161a" : "transparent";
       if (want !== fill) frame.style.background = fill = want;
@@ -32375,7 +32831,7 @@ ${code}
       options.onError?.(e instanceof Error ? e.message : String(e));
     };
     const codes = [];
-    for (const [at2, s] of page.scripts.entries()) {
+    for (const [at3, s] of page.scripts.entries()) {
       let code = s.code;
       if (code === void 0 && s.src) {
         try {
@@ -32397,7 +32853,7 @@ ${code}
           continue;
         }
       }
-      codes.push({ code, at: at2, module: !!s.module });
+      codes.push({ code, at: at3, module: !!s.module });
     }
     const declared = /* @__PURE__ */ new Set();
     let react = {};
@@ -32453,7 +32909,7 @@ exports.__handlers = [${handlerSrc}];
     } catch (e) {
       report(e);
     }
-    for (const { code, at: at2, module } of [...codes.filter((c) => !c.module), ...codes.filter((c) => c.module)]) {
+    for (const { code, at: at3, module } of [...codes.filter((c) => !c.module), ...codes.filter((c) => c.module)]) {
       try {
         if (module && isModuleCode(code)) {
           await modules.runModule(code);
@@ -32464,7 +32920,7 @@ ${code}
 })().catch(__fornelloReport);` : code);
         for (const name of ready.names) declared.add(name);
         settle();
-        current = module ? null : doc.querySelector(`script[${SCRIPT_ATTR}="${at2}"]`);
+        current = module ? null : doc.querySelector(`script[${SCRIPT_ATTR}="${at3}"]`);
         interp.run(`with (__fornelloScope) {
 ${ready.code}
 }`);
@@ -32918,17 +33374,17 @@ ${ready.code}
     }
     return clonedNode;
   }
-  async function ensureSVGSymbols(clone2, options) {
-    const uses = clone2.querySelectorAll ? clone2.querySelectorAll("use") : [];
+  async function ensureSVGSymbols(clone3, options) {
+    const uses = clone3.querySelectorAll ? clone3.querySelectorAll("use") : [];
     if (uses.length === 0) {
-      return clone2;
+      return clone3;
     }
     const processedDefs = {};
     for (let i = 0; i < uses.length; i++) {
       const use = uses[i];
       const id = use.getAttribute("xlink:href");
       if (id) {
-        const exist = clone2.querySelector(id);
+        const exist = clone3.querySelector(id);
         const definition = document.querySelector(id);
         if (!exist && definition && !processedDefs[id]) {
           processedDefs[id] = await cloneNode(definition, options, true);
@@ -32950,9 +33406,9 @@ ${ready.code}
       for (let i = 0; i < nodes.length; i++) {
         defs.appendChild(nodes[i]);
       }
-      clone2.appendChild(svg3);
+      clone3.appendChild(svg3);
     }
-    return clone2;
+    return clone3;
   }
   async function cloneNode(node, options, isRoot) {
     if (!isRoot && options.filter && !options.filter(node)) {
@@ -33391,6 +33847,16 @@ ${ready.code}
   var ICON_RERUN = svg('<path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v6h-6"/>');
   var ICON_EXPAND = svg('<path d="M15 3h6v6"/><path d="M9 21H3v-6"/><path d="M21 3l-7 7"/><path d="M3 21l7-7"/>');
   var ICON_SHRINK = svg('<path d="M4 14h6v6"/><path d="M20 10h-6V4"/><path d="M14 10l7-7"/><path d="M3 21l7-7"/>');
+  var ICON_PUZZLE = svg(
+    '<path d="M15.39 4.39a1 1 0 0 0 1.68-.474 2.5 2.5 0 1 1 3.014 3.015 1 1 0 0 0-.474 1.68l1.683 1.682a2.414 2.414 0 0 1 0 3.414L19.61 15.39a1 1 0 0 1-1.68-.474 2.5 2.5 0 1 0-3.014 3.015 1 1 0 0 1 .474 1.68l-1.683 1.682a2.414 2.414 0 0 1-3.414 0L8.61 19.61a1 1 0 0 0-1.68.474 2.5 2.5 0 1 1-3.014-3.015 1 1 0 0 0 .474-1.68l-1.683-1.682a2.414 2.414 0 0 1 0-3.414L4.39 8.61a1 1 0 0 1 1.68.474 2.5 2.5 0 1 0 3.014-3.015 1 1 0 0 1-.474-1.68l1.683-1.682a2.414 2.414 0 0 1 3.414 0z"/>'
+  );
+  var ICON_SCROLL = svg('<path d="M15 12h-5"/><path d="M15 8h-5"/><path d="M19 17V5a2 2 0 0 0-2-2H4"/><path d="M8 21h12a2 2 0 0 0 2-2v-1a1 1 0 0 0-1-1H11a1 1 0 0 0-1 1v1a2 2 0 1 1-4 0V5a2 2 0 1 0-4 0v2a1 1 0 0 0 1 1h3"/>');
+  var ICON_IMAGES = svg('<path d="M18 22H4a2 2 0 0 1-2-2V6"/><path d="m22 13-1.296-1.296a2.41 2.41 0 0 0-3.408 0L11 18"/><circle cx="12" cy="8" r="2"/><rect width="16" height="16" x="6" y="2" rx="2"/>');
+  var ICON_BOOK = svg('<path d="M12 7v14"/><path d="M16 12h2"/><path d="M16 8h2"/><path d="M3 18a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h5a4 4 0 0 1 4 4 4 4 0 0 1 4-4h5a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1h-6a3 3 0 0 0-3 3 3 3 0 0 0-3-3z"/><path d="M6 12h2"/><path d="M6 8h2"/>');
+  var ICON_MORE = svg('<circle cx="12" cy="12" r="1"/><circle cx="12" cy="5" r="1"/><circle cx="12" cy="19" r="1"/>');
+  var ICON_PLUS = svg('<path d="M5 12h14"/><path d="M12 5v14"/>');
+  var ICON_IMPORT = svg('<path d="M12 15V3"/><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5"/>');
+  var ICON_EXPORT = svg('<path d="M12 3v12"/><path d="m17 8-5-5-5 5"/><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>');
 
   // src/shared/theme.ts
   var THEME_TOKENS = `
@@ -33512,7 +33978,7 @@ ${THEME_TOKENS}
 @keyframes in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
 `;
   var root = null;
-  function showToast(text, kind = "info") {
+  function showToast(text2, kind = "info") {
     if (!root || !root.host.isConnected) {
       const host = document.createElement("div");
       host.id = "fornello-toasts";
@@ -33528,7 +33994,7 @@ ${THEME_TOKENS}
     const note = document.createElement("div");
     note.className = `t ${kind}`;
     note.setAttribute("role", "status");
-    note.textContent = text;
+    note.textContent = text2;
     root.append(note);
     setTimeout(() => note.remove(), kind === "error" ? 6e3 : 3500);
   }
@@ -33579,7 +34045,15 @@ ${HOVER_TOOLS}
       live.add(this);
       const mode = options.settings.current.mode;
       this.running = this.page.hasBehavior && options.autoRun === true && mode !== "off";
-      this.render();
+      const fill = options.fillAssets && mayHoldTags(code) ? options.fillAssets : null;
+      if (!fill) this.render();
+      else
+        void fill(code).catch(() => code).then((filled) => {
+          if (!live.has(this)) return;
+          this.code = filled;
+          this.page = preparePage(filled);
+          this.render();
+        });
       if (this.page.hasBehavior && !this.running && options.startOnScreen) {
         this.seen = new IntersectionObserver((entries) => {
           if (!entries.some((e) => e.isIntersecting) || this.running) return;
@@ -33702,10 +34176,10 @@ ${HOVER_TOOLS}
       const tools = document.createElement("div");
       tools.className = "tools";
       if (this.page.hasBehavior && !this.running && this.options.settings.current.mode !== "off") {
-        const run = toolButton("", t("Run this page's scripts", "이 페이지의 스크립트 실행"), () => this.run());
-        run.textContent = t("▶ Run", "▶ 실행");
-        run.className = "run keep";
-        tools.append(run);
+        const run2 = toolButton("", t("Run this page's scripts", "이 페이지의 스크립트 실행"), () => this.run());
+        run2.textContent = t("▶ Run", "▶ 실행");
+        run2.className = "run keep";
+        tools.append(run2);
       }
       if (this.page.hasBehavior && this.running) tools.append(toolButton(ICON_RERUN, t("Run again", "다시 실행"), () => this.run()));
       const image = toolButton(ICON_IMAGE, t("Save image", "이미지 저장"), () => void this.saveImage(image));
@@ -33871,7 +34345,7 @@ ${HOVER_TOOLS}
     }
     /** A page for one fence; it starts by itself when it is among the recent ones. */
     newBlock(code, messageId, key) {
-      return new PageBlock(code, { settings: this.settings, messageId, startOnScreen: () => this.recent.has(key), openSettings: () => this.hooks.openSettings() });
+      return new PageBlock(code, { settings: this.settings, messageId, startOnScreen: () => this.recent.has(key), openSettings: () => this.hooks.openSettings(), fillAssets: (c) => fillPageAssets(c) });
     }
     async scan(chatId) {
       if (!chatId || this.settings.current.mode === "off") {
@@ -33904,14 +34378,14 @@ ${HOVER_TOOLS}
           continue;
         }
         const sig = `${quickHash(message.text)}|${last - message.num}|${scripts.length}`;
-        let cached2 = this.regexed.get(id);
-        if (!cached2 || cached2.sig !== sig) {
+        let cached3 = this.regexed.get(id);
+        if (!cached3 || cached3.sig !== sig) {
           const sources2 = [];
-          const text = scripts.length ? applyDisplayRegex(message.text, scripts, { role: message.role, depth: last - message.num, chatCharacters: this.cast, names: this.names }, sources2) : message.text;
-          cached2 = { sig, text, sources: sources2 };
-          this.regexed.set(id, cached2);
+          const text2 = scripts.length ? applyDisplayRegex(message.text, scripts, { role: message.role, depth: last - message.num, chatCharacters: this.cast, names: this.names }, sources2) : message.text;
+          cached3 = { sig, text: text2, sources: sources2 };
+          this.regexed.set(id, cached3);
         }
-        if (cached2.text === message.text || !this.showRegexPages(el2, message, cached2.text, cached2.sources, live2)) unhideWithin(el2);
+        if (cached3.text === message.text || !this.showRegexPages(el2, message, cached3.text, cached3.sources, live2)) unhideWithin(el2);
       }
       for (const key of [...this.shown.keys()]) if (!live2.has(key)) this.drop(key);
       this.rankRecent();
@@ -33925,8 +34399,8 @@ ${HOVER_TOOLS}
     /** "바로 실행": the most recent pages (by message, then by place in it) may start by themselves. */
     rankRecent() {
       const order = (key) => {
-        const at2 = key.lastIndexOf(":");
-        return [this.messages.get(key.slice(0, at2))?.num ?? 0, Number(key.slice(at2 + 1))];
+        const at3 = key.lastIndexOf(":");
+        return [this.messages.get(key.slice(0, at3))?.num ?? 0, Number(key.slice(at3 + 1))];
       };
       const keys = [...this.shown].filter(([, s]) => s.block.hasScripts).map(([key]) => key).sort((a, b2) => {
         const [na2, ia2] = order(a);
@@ -34001,8 +34475,8 @@ ${HOVER_TOOLS}
       }
     }
     /** Marinara applies a reply's <style> to the whole message; when every <style> is inside the pages, that copy is turned off. */
-    muteStyles(el2, text, fences) {
-      let rest = text;
+    muteStyles(el2, text2, fences) {
+      let rest = text2;
       for (const f of [...fences].reverse()) if (f.complete) rest = rest.slice(0, f.start) + rest.slice(f.end);
       const mute = !/<style[\s>]/i.test(rest);
       for (const style of el2.querySelectorAll(".mari-message-content style")) {
@@ -34010,9 +34484,9 @@ ${HOVER_TOOLS}
         style.sheet.disabled = mute;
       }
     }
-    showRegexPages(el2, message, text, sources2, live2) {
+    showRegexPages(el2, message, text2, sources2, live2) {
       const id = message.id;
-      const fences = codeFences(text).filter((f) => f.html && f.complete);
+      const fences = codeFences(text2).filter((f) => f.html && f.complete);
       if (!fences.length) return false;
       const contents = [...el2.querySelectorAll(".mari-message-content")].filter((c) => !c.closest(OURS));
       const anchor = contents[contents.length - 1];
@@ -34026,7 +34500,7 @@ ${HOVER_TOOLS}
       if (anchor) {
         if (anchor.nextElementSibling !== container) anchor.after(container);
       } else if (container.parentElement !== el2) el2.append(container);
-      let rest = text;
+      let rest = text2;
       for (const f of [...fences].reverse()) rest = rest.slice(0, f.start) + rest.slice(f.end);
       if (!rest.trim()) for (const c of contents) hide(c);
       fences.forEach((fence2, i) => {
@@ -34044,12 +34518,1743 @@ ${HOVER_TOOLS}
       });
       if (rest.trim()) {
         unhideWithin(el2);
-        if (sources2.length) for (const c of contents) blankText(c, (full) => findLoose(full, sources2));
+        if (sources2.length) for (const c of contents) blankText(c, (full) => findLoose2(full, sources2));
         for (const c of contents) {
           for (const pre of c.querySelectorAll("pre.mari-md-codeblock")) if (isHtmlBlock(pre) && !pre.closest(OURS)) hide(pre);
         }
       }
       return true;
+    }
+  };
+
+  // src/assets/rule.ts
+  var RULE_ENTRY = "Credenza";
+  var PER_REPLY = { min: 1, max: 5, default: 2 };
+  function namesByPerson(people) {
+    const out = /* @__PURE__ */ new Map();
+    for (const p2 of people) {
+      for (const a of p2.assets) {
+        if (a.place !== "gallery") continue;
+        const who = a.person || p2.name;
+        if (!out.has(who)) out.set(who, /* @__PURE__ */ new Set());
+        out.get(who).add(a.name);
+      }
+    }
+    const EXT2 = /\.(png|jpe?g|gif|webp|avif|svg|mp4|webm)$/i;
+    return [...out].map(([who, names]) => {
+      const all = [...names];
+      const bare = all.map((n) => n.replace(EXT2, ""));
+      return [who, [...new Set(all.map((n, i) => bare.filter((b2) => b2.toLowerCase() === bare[i].toLowerCase()).length > 1 ? n : bare[i]))]];
+    });
+  }
+  function pictureRule(people, perReply = PER_REPLY.default) {
+    const lines = namesByPerson(people);
+    if (!lines.length) return "";
+    const most = Math.max(PER_REPLY.min, Math.min(PER_REPLY.max, Math.round(perReply)));
+    return [
+      "[Pictures]",
+      `After a paragraph you may show a picture by writing [img:name] on its own line: at most ${most} per reply, only when one fits the moment. Use only these names:`,
+      ...lines.map(([who, names]) => `${who}: ${names.join(", ")}`),
+      "For a picture of someone other than the one speaking, write [img:person:name].",
+      'In an HTML page, write {{raw::name}} where its address goes (<img src="{{raw::name}}">), choosing pictures that fit the scene.'
+    ].join("\n");
+  }
+
+  // src/assets/display.ts
+  var DEFAULT_ASSET_DISPLAY = { tags: false, expressions: "off", words: false, width: 320, tell: "card", perReply: PER_REPLY.default };
+  var ASSET_WIDTH = { min: 80, max: 1200 };
+  function normalizeAssetDisplay(raw) {
+    const r = raw && typeof raw === "object" ? raw : {};
+    const width = Number(r.width);
+    const perReply = Number(r.perReply);
+    return {
+      tags: r.tags === true,
+      expressions: r.expressions === "above" || r.expressions === "below" ? r.expressions : "off",
+      words: r.words === true,
+      width: Number.isFinite(width) ? Math.max(ASSET_WIDTH.min, Math.min(ASSET_WIDTH.max, Math.round(width))) : DEFAULT_ASSET_DISPLAY.width,
+      tell: r.tell === "chat" || r.tell === "off" ? r.tell : "card",
+      perReply: Number.isFinite(perReply) ? Math.max(PER_REPLY.min, Math.min(PER_REPLY.max, Math.round(perReply))) : PER_REPLY.default
+    };
+  }
+  var assetsOn = (d2) => d2.tags || d2.words || d2.expressions !== "off";
+
+  // src/assets/rule-sync.ts
+  var WRITTEN = "assetRules";
+  var written = null;
+  async function writtenHashes() {
+    if (!written) {
+      const raw = parseObject((await getMarinara().storage.get())[WRITTEN]);
+      written = {};
+      for (const [id, v] of Object.entries(raw)) {
+        if (typeof v === "string") written[id] = { hash: v };
+        else {
+          const o2 = parseObject(v);
+          if (typeof o2.hash === "string") written[id] = { hash: o2.hash, ...typeof o2.book === "string" ? { book: o2.book } : {} };
+        }
+      }
+    }
+    return written;
+  }
+  async function remember(entryId, content, book) {
+    const map = await writtenHashes();
+    if (content === null) delete map[entryId];
+    else map[entryId] = { hash: quickHash(content), ...book ? { book } : {} };
+    await getMarinara().storage.patch({ [WRITTEN]: { ...map } });
+  }
+  async function removePictureRules() {
+    const map = await writtenHashes();
+    const byBook = /* @__PURE__ */ new Map();
+    for (const [id, w2] of Object.entries(map)) if (w2.book) byBook.set(w2.book, [...byBook.get(w2.book) ?? [], id]);
+    for (const [book, ids] of byBook) {
+      const entries = await loreEntries(book).catch(() => null);
+      const ours = (entries ?? []).filter((e) => ids.includes(e.id) && map[e.id]?.hash === quickHash(e.content ?? "")).map((e) => e.id);
+      if (ours.length) await deleteLoreEntries(book, ours);
+      for (const id of ids) if (!entries || ours.includes(id) || !entries.some((e) => e.id === id)) delete map[id];
+    }
+    await getMarinara().storage.patch({ [WRITTEN]: { ...map } });
+  }
+  var told = /* @__PURE__ */ new Set();
+  function forgetRuleHashes() {
+    written = null;
+    told.clear();
+  }
+  function tellOnce(key, text2) {
+    if (told.has(key)) return;
+    told.add(key);
+    showToast(text2, "info");
+  }
+  async function isOurs(entry) {
+    return (await writtenHashes())[entry.id]?.hash === quickHash(entry.content ?? "");
+  }
+  async function putRule(bookId, content, whose) {
+    const entry = (await loreEntries(bookId)).find((e) => e.name === RULE_ENTRY);
+    if (!content) {
+      if (entry && await isOurs(entry)) {
+        await deleteLoreEntries(bookId, [entry.id]);
+        await remember(entry.id, null);
+      }
+      return;
+    }
+    if (entry) {
+      if (entry.content === content) return;
+      if (!await isOurs(entry)) {
+        tellOnce(
+          `edited:${entry.id}`,
+          t(`"${RULE_ENTRY}" in ${whose} was changed by hand, so Fornello left it as it is.`, `${whose}의 "${RULE_ENTRY}" 항목을 직접 고치셔서 Fornello가 그대로 두었어요.`)
+        );
+        return;
+      }
+      await patchLoreEntry(bookId, entry.id, { content });
+      await remember(entry.id, content, bookId);
+      return;
+    }
+    const made2 = await createLoreEntry(bookId, { name: RULE_ENTRY, content, enabled: true, constant: true, position: 2, depth: 4, order: 900 });
+    await remember(made2.id, content, bookId);
+  }
+  async function cardBook(c, make) {
+    const ext = parseObject(c.data.extensions);
+    const linked = parseObject(parseObject(ext.importMetadata).embeddedLorebook).lorebookId;
+    if (typeof linked === "string" && linked) {
+      const book2 = await api(`/lorebooks/${encodeURIComponent(linked)}`).catch(() => null);
+      if (book2?.id) return book2.id;
+    }
+    if (!make) return null;
+    const data = await characterData(c.id);
+    const fresh = parseObject(parseObject(parseObject(data.extensions).importMetadata).embeddedLorebook).lorebookId;
+    if (fresh !== linked) {
+      forgetPeople();
+      return cardBook({ ...c, data }, false);
+    }
+    if (data.character_book !== null && data.character_book !== void 0) return null;
+    const book = await api("/lorebooks", { method: "POST", body: { name: `${c.name} Fornello`.slice(0, 200), category: "character", characterIds: [c.id] } });
+    try {
+      await api(`/characters/${encodeURIComponent(c.id)}/embedded-lorebook/embed`, { method: "POST", body: { lorebookId: book.id } });
+    } catch (e) {
+      await api(`/lorebooks/${encodeURIComponent(book.id)}`, { method: "DELETE" }).catch(() => {
+      });
+      throw e;
+    }
+    forgetPeople();
+    return book.id;
+  }
+  async function syncPictureRules(chatId, cast, look) {
+    const where = look.tags ? look.tell : "off";
+    const withAssets = cast.filter((c) => cardAssets(c.data).length);
+    const toChat = [];
+    for (const c of cast) {
+      const assets = cardAssets(c.data);
+      const want = where === "card" && assets.length ? pictureRule([{ name: c.name, assets }], look.perReply) : "";
+      const book2 = await cardBook(c, !!want);
+      if (book2) await putRule(book2, want, c.name);
+      else if (want) {
+        toChat.push(c);
+        tellOnce(
+          `slot:${c.id}`,
+          t(`${c.name}'s card already holds a lorebook Marinara didn't link, so its picture names went to this chat's lorebook.`, `${c.name} 카드에는 마리나라가 연결하지 않은 로어북이 이미 있어서, 그림 이름은 이 채팅의 로어북에 넣었어요.`)
+        );
+      }
+    }
+    const chatPeople = where === "chat" ? withAssets : toChat;
+    const chatRule = chatPeople.length ? pictureRule(chatPeople.map((c) => ({ name: c.name, assets: cardAssets(c.data) })), look.perReply) : "";
+    const book = chatRule ? await chatLoreBook(chatId) : await chatLoreBookIfAny(chatId);
+    if (book) await putRule(book.id, chatRule, t("this chat's lorebook", "이 채팅 로어북"));
+  }
+
+  // src/assets/picture-regex.ts
+  var PICTURE_REGEX = "Fornello: picture names";
+  var FIND = "\\{\\{(?:raw|path)::([^{}\\n]+)\\}\\}";
+  var REPLACE = `${SHOWN_PREFIX}$1`;
+  var made = null;
+  function ensurePictureRegex() {
+    made ??= (async () => {
+      const mine = (await regexScripts()).find((s) => s.name === PICTURE_REGEX);
+      if (mine) return;
+      await api("/regex-scripts", { method: "POST", body: { name: PICTURE_REGEX, enabled: true, findRegex: FIND, replaceString: REPLACE, placement: ["ai_output"], flags: "g", applyMode: "display" } });
+      forgetRegexScripts();
+    })().catch((e) => {
+      made = null;
+      throw e;
+    });
+    return made;
+  }
+  async function removePictureRegex() {
+    made = null;
+    forgetRegexScripts();
+    for (const s of (await regexScripts()).filter((x2) => x2.name === PICTURE_REGEX)) await api(`/regex-scripts/${encodeURIComponent(s.id)}`, { method: "DELETE" });
+    forgetRegexScripts();
+  }
+  function forgetPictureRegex() {
+    made = null;
+  }
+
+  // src/assets/picture.ts
+  var STYLE3 = `
+:host { margin: .4em 0; }
+figure { margin: 0; display: flex; justify-content: center; }
+img { display: block; max-width: min(100%, var(--w)); height: auto; border-radius: 8px; cursor: zoom-in; }
+img.big { max-width: 100%; cursor: zoom-out; }
+`;
+  var PICTURE_CLASS = "fornello-asset";
+  function assetPicture(url, name, width) {
+    const host = document.createElement("div");
+    host.className = PICTURE_CLASS;
+    standApart(host);
+    host.dataset.asset = name;
+    const root2 = host.attachShadow({ mode: "open" });
+    const style = document.createElement("style");
+    style.textContent = STYLE3;
+    const img = document.createElement("img");
+    img.src = url;
+    img.alt = name;
+    img.title = name;
+    img.loading = "lazy";
+    img.decoding = "async";
+    img.draggable = false;
+    img.style.setProperty("--w", `${width}px`);
+    img.addEventListener("click", (e) => {
+      e.stopPropagation();
+      img.classList.toggle("big");
+      img.title = img.classList.contains("big") ? t("Click to make it smaller", "눌러서 작게") : name;
+    });
+    img.addEventListener("error", () => {
+      img.alt = t(`Picture not found: ${name}`, `그림을 찾지 못했어요: ${name}`);
+      img.style.cursor = "default";
+    });
+    const figure = document.createElement("figure");
+    figure.append(img);
+    root2.append(style, figure);
+    return host;
+  }
+
+  // src/assets/words.ts
+  var LATIN = /^[\p{Script=Latin}\d]/u;
+  function at2(text2, word) {
+    const w2 = word.normalize("NFKC").toLowerCase();
+    if (!w2) return -1;
+    if (!LATIN.test(w2)) return text2.indexOf(w2);
+    const escaped = w2.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    return text2.search(new RegExp(`(?<![\\p{L}\\d])${escaped}(?![\\p{L}\\d])`, "u"));
+  }
+  function assetsByWords(text2, assets, max = 2) {
+    const lower = text2.normalize("NFKC").toLowerCase();
+    const hits = [];
+    for (const asset of assets) {
+      const positions = (asset.words ?? []).map((w2) => at2(lower, w2)).filter((p2) => p2 >= 0);
+      if (positions.length) hits.push({ asset, pos: Math.min(...positions) });
+    }
+    return hits.sort((a, b2) => a.pos - b2.pos).slice(0, max).map((h3) => h3.asset);
+  }
+
+  // src/assets/chat-assets.ts
+  var MOVED_TEXT = "fornello-text";
+  var OURS2 = `.fornello-pages, .fornello-components, .fornello-block, .${PICTURE_CLASS}, .${MOVED_TEXT}`;
+  var SKIP = "pre, code, script, style, textarea";
+  var BLOCK = "p, li, blockquote, h1, h2, h3, h4, h5, h6, div, table";
+  var RAW_ATTRS = ["style", "src", "href", "poster", "srcset"];
+  var emptyPlaced = (sig = "") => ({ sig, nodes: [], blanked: [], attrs: [] });
+  function textNodes(root2) {
+    const out = [];
+    const walk2 = (node) => {
+      for (const child of node.childNodes) {
+        if (child.nodeType === Node.TEXT_NODE) out.push(child);
+        else if (child instanceof Element && !child.matches(`${SKIP}, ${OURS2}`)) walk2(child);
+      }
+    };
+    walk2(root2);
+    return out;
+  }
+  var ChatAssets = class extends MessageScanner {
+    people = [];
+    sprites = /* @__PURE__ */ new Map();
+    placed = /* @__PURE__ */ new Map();
+    reload = false;
+    /** The chat and settings the picture rules were last brought in line for. */
+    ruled = "";
+    /** The rules are written one bring-in-line at a time (two at once would both add an entry). */
+    ruling = Promise.resolve();
+    constructor(settings) {
+      super(settings);
+    }
+    clear() {
+      for (const id of [...this.placed.keys()]) this.drop(id);
+      this.sprites.clear();
+      this.reload = true;
+    }
+    replyDone() {
+      this.reload = true;
+      this.schedule();
+    }
+    chatChanged() {
+      this.people = [];
+      this.sprites.clear();
+      this.reload = false;
+    }
+    async read(chatId) {
+      const [list, read4] = await Promise.all([listMessages(chatId, { fresh: true }), chatCharacters(chatId).catch(() => null)]);
+      const cast = read4 ?? [];
+      const whole = read4 !== null && read4.every((c) => Object.keys(c.data).length > 0);
+      const people = await Promise.all(cast.map(async (c) => ({ id: c.id, name: c.name, assets: withSprites(cardAssets(c.data), await this.spritesOf(c.id)) })));
+      return () => {
+        this.messages = new Map(list.map((m2) => [m2.id, m2]));
+        this.people = people;
+        if (whole) this.syncRules(chatId, cast);
+      };
+    }
+    /** The picture rules, once a chat (and again when the settings or a card's assets change). */
+    syncRules(chatId, cast) {
+      const look = this.settings.current.assets;
+      const key = [chatId, look.tags, look.tell, look.perReply, ...cast.map((c) => `${c.id}:${quickHash(JSON.stringify(cardAssets(c.data)))}`)].join("|");
+      if (key === this.ruled) return;
+      this.ruled = key;
+      if (look.tags) void ensurePictureRegex().catch((e) => console.warn("[Fornello] picture regex", e));
+      this.ruling = this.ruling.then(
+        () => syncPictureRules(chatId, cast, look).catch((e) => {
+          this.ruled = "";
+          console.warn("[Fornello] picture rules", e);
+        })
+      );
+    }
+    /** A character's sprites, read once a chat. */
+    spritesOf(id) {
+      let p2 = this.sprites.get(id);
+      if (!p2) {
+        p2 = spriteListOf(id);
+        this.sprites.set(id, p2);
+      }
+      return p2;
+    }
+    drop(id) {
+      const p2 = this.placed.get(id);
+      if (!p2) return;
+      for (const node of p2.nodes) node.remove();
+      for (const b2 of p2.blanked) if (b2.node.isConnected && b2.node.nodeValue === b2.now) b2.node.nodeValue = b2.was;
+      for (const a of p2.attrs) if (a.el.isConnected && a.el.getAttribute(a.name) === a.now) a.el.setAttribute(a.name, a.was);
+      this.placed.delete(id);
+    }
+    async scan(chatId) {
+      const look = this.settings.current.assets;
+      if (!chatId || !assetsOn(look)) {
+        if (this.placed.size) this.clear();
+        if (chatId && this.ruled.startsWith(`${chatId}|true|`)) void chatCharacters(chatId).then((cast) => this.syncRules(chatId, cast)).catch(() => void 0);
+        return;
+      }
+      const elements = [...document.querySelectorAll("[data-message-id]")].filter((el2) => !el2.parentElement?.closest(OURS2) && isSaved(el2.dataset.messageId));
+      if (!elements.length) return;
+      const sigOf = (el2) => quickHash(el2.textContent ?? "");
+      const stale = elements.some((el2) => {
+        const id = el2.dataset.messageId;
+        return !this.messages.has(id) || this.placed.get(id)?.sig !== sigOf(el2);
+      });
+      if ((stale || this.reload) && this.loadAllowed()) {
+        this.reload = false;
+        await this.load(chatId);
+      }
+      if (this.stopped || !assetsOn(this.settings.current.assets)) return;
+      const live2 = /* @__PURE__ */ new Set();
+      for (const el2 of elements) {
+        const id = el2.dataset.messageId;
+        const message = this.messages.get(id);
+        if (!message) continue;
+        live2.add(id);
+        const was = this.placed.get(id);
+        if (message.role === "user" || message.role === "system") {
+          if (was?.sig !== sigOf(el2)) this.placed.set(id, emptyPlaced(sigOf(el2)));
+          continue;
+        }
+        if (was && was.sig === sigOf(el2) && was.nodes.every((n) => n.isConnected)) continue;
+        this.drop(id);
+        const placed2 = emptyPlaced();
+        this.placeAll(el2, message, placed2);
+        placed2.sig = sigOf(el2);
+        this.placed.set(id, placed2);
+      }
+      for (const id of [...this.placed.keys()]) if (!live2.has(id)) this.drop(id);
+    }
+    /** Who a reply's own assets belong to: its writer, else the chat's first character. */
+    speaker(message) {
+      return this.people.find((p2) => p2.id === message.characterId) ?? this.people[0];
+    }
+    /** An asset a tag names: a chat character it names, the speaker's (or someone in the speaker's card), then anyone's. */
+    resolve(name, person, speaker) {
+      const named = person ? this.people.find((p2) => samePerson(person, p2.name)) : void 0;
+      const order = [...named ? [{ p: named, person: void 0 }] : [], ...speaker ? [{ p: speaker, person }] : [], ...this.people.filter((p2) => p2 !== speaker && p2 !== named).map((p2) => ({ p: p2, person }))];
+      for (const { p: p2, person: who } of order) {
+        const found = findAssets(p2.assets, { name, person: who });
+        if (found.length) return { asset: found[0], owner: p2 };
+      }
+      return null;
+    }
+    placeAll(el2, message, placed2) {
+      const look = this.settings.current.assets;
+      const contents = [...el2.querySelectorAll(".mari-message-content")].filter((c) => !c.closest(OURS2));
+      if (!contents.length) return;
+      const speaker = this.speaker(message);
+      const picture = (asset, owner, label) => assetPicture(assetUrl(owner.id, asset), label, look.width);
+      const pick2 = (name, person) => {
+        const hit = this.resolve(name, person, speaker);
+        if (!hit) return null;
+        const same3 = findAssets(hit.owner.assets, { name, person: hit.owner === speaker ? person : void 0 });
+        return { asset: pickOne(same3.length ? same3 : [hit.asset], `${message.id}:${nameKey(name)}`), owner: hit.owner };
+      };
+      let after = contents[contents.length - 1];
+      if (look.expressions !== "off" && speaker) {
+        const expression = message.expressions?.[speaker.id];
+        const sprite = expression ? speaker.assets.find((a) => a.place === "sprite" && nameKey(a.name) === nameKey(expression)) : void 0;
+        if (sprite) {
+          const node = picture(sprite, speaker, expression);
+          if (look.expressions === "above") contents[0].before(node);
+          else {
+            after.after(node);
+            after = node;
+          }
+          placed2.nodes.push(node);
+        }
+      }
+      if (look.tags) for (const c of contents) this.placeTags(c, pick2, placed2, picture);
+      if (look.words && speaker) {
+        const text2 = contents.map((c) => c.textContent ?? "").join("\n");
+        const shown2 = new Set(placed2.nodes.map((n) => nameKey(n.dataset.asset ?? "")));
+        for (const asset of assetsByWords(text2, speaker.assets.filter((a) => !shown2.has(nameKey(a.name))))) {
+          const node = picture(asset, speaker, asset.name);
+          after.after(node);
+          after = node;
+          placed2.nodes.push(node);
+        }
+      }
+    }
+    placeTags(content, pick2, placed2, picture) {
+      const names = [...this.people.map((p2) => p2.name), ...new Set(this.people.flatMap((p2) => p2.assets.map((a) => a.person ?? "")).filter(Boolean))];
+      this.fillRaw(content, pick2, placed2);
+      const nodes = textNodes(content);
+      const full = nodes.map((n) => n.nodeValue ?? "").join("");
+      if (!mayHoldTags(full)) return;
+      const spans = [];
+      const lastAfter = /* @__PURE__ */ new Map();
+      const inText = /* @__PURE__ */ new Map();
+      for (const tag of findTags(full, names)) {
+        if (tag.kind !== "img") continue;
+        const hit = pick2(tag.name, tag.person);
+        if (!hit) continue;
+        spans.push(tag);
+        let offset2 = 0;
+        let start2 = 0;
+        const node = nodes.find((n) => {
+          start2 = offset2;
+          offset2 += n.nodeValue?.length ?? 0;
+          return offset2 >= tag.end;
+        }) ?? nodes[nodes.length - 1];
+        const pic = picture(hit.asset, hit.owner, tag.name);
+        placed2.nodes.push(pic);
+        const block = node.parentElement?.closest(BLOCK);
+        if (block && block !== content && content.contains(block)) {
+          const prev = lastAfter.get(block);
+          (prev ?? block).after(pic);
+          lastAfter.set(block, pic);
+          continue;
+        }
+        const value2 = node.nodeValue ?? "";
+        const local = Math.min(value2.length, Math.max(0, tag.end - start2));
+        const line = value2.indexOf("\n", local);
+        const entry = inText.get(node) ?? { start: start2, cuts: [] };
+        entry.cuts.push({ at: line < 0 ? value2.length : line + 1, pic });
+        inText.set(node, entry);
+      }
+      let offset = 0;
+      for (const n of nodes) {
+        const start2 = offset;
+        const value2 = n.nodeValue ?? "";
+        offset += value2.length;
+        let text2 = value2;
+        for (const s of [...spans].sort((a, b2) => b2.start - a.start)) {
+          const a = Math.max(s.start, start2) - start2;
+          const b2 = Math.min(s.end, offset) - start2;
+          if (a < b2) text2 = text2.slice(0, a) + text2.slice(b2);
+        }
+        if (text2 !== value2) {
+          placed2.blanked.push({ node: n, was: value2, now: text2 });
+          n.nodeValue = text2;
+        }
+      }
+      for (const [node, { start: start2, cuts }] of inText) this.splitAround(node, start2, cuts, spans, placed2);
+    }
+    /**
+     * Puts pictures inside a text node: the node keeps the text up to the first
+     * picture (so Marinara can still redraw it), the text after each picture
+     * goes in a span of Fornello's, taken out with the pictures. The text on
+     * screen stays the same, letter for letter.
+     */
+    splitAround(node, start2, cuts, spans, placed2) {
+      const blankedBefore = (at3) => spans.reduce((n, s) => n + Math.max(0, Math.min(s.end, start2 + at3) - Math.max(s.start, start2)), 0);
+      const text2 = node.nodeValue ?? "";
+      const sorted = [...cuts].sort((a, b2) => a.at - b2.at).map((c) => ({ at: c.at - blankedBefore(c.at), pic: c.pic }));
+      let after = node;
+      for (const [i, { at: at3, pic }] of sorted.entries()) {
+        after.after(pic);
+        after = pic;
+        const end = sorted[i + 1]?.at ?? text2.length;
+        if (end > at3 && sorted[i + 1]?.at !== at3) {
+          const rest = document.createElement("span");
+          rest.className = MOVED_TEXT;
+          rest.textContent = text2.slice(at3, end);
+          after.after(rest);
+          after = rest;
+          placed2.nodes.push(rest);
+        }
+      }
+      const kept2 = text2.slice(0, sorted[0]?.at ?? text2.length);
+      if (kept2 === text2) return;
+      const blanked = placed2.blanked.find((b2) => b2.node === node);
+      if (blanked) blanked.now = kept2;
+      else placed2.blanked.push({ node, was: text2, now: kept2 });
+      node.nodeValue = kept2;
+    }
+    /** {{raw::name}} in a card's HTML attributes becomes the picture's address. */
+    fillRaw(content, pick2, placed2) {
+      for (const node of content.querySelectorAll(RAW_ATTRS.flatMap((a) => [`[${a}*="{{"]`, `[${a}*="fornello-pic::"]`]).join(", "))) {
+        if (node.closest(OURS2)) continue;
+        for (const attr of RAW_ATTRS) {
+          const value2 = node.getAttribute(attr);
+          if (!value2 || !mayHoldTags(value2)) continue;
+          let next2 = value2;
+          for (const tag of findTags(value2).reverse()) {
+            if (tag.kind !== "raw") continue;
+            const hit = pick2(tag.name, tag.person);
+            if (hit) next2 = next2.slice(0, tag.start) + assetUrl(hit.owner.id, hit.asset) + next2.slice(tag.end);
+          }
+          if (next2 !== value2) {
+            placed2.attrs.push({ el: node, name: attr, was: value2, now: next2 });
+            node.setAttribute(attr, next2);
+          }
+        }
+      }
+    }
+  };
+
+  // src/scripts/files.ts
+  function exportJson(items2, withData = true) {
+    const trees = toScriptTrees(items2).map((tree) => withData ? tree : dropData(tree));
+    return JSON.stringify(trees.length === 1 ? trees[0] : trees, null, 2);
+  }
+  var dropData = (tree) => tree.type === "folder" ? { ...tree, scripts: tree.scripts.map(dropData) } : { ...tree, data: {} };
+  var hasData = (items2) => items2.some((i) => isFolder(i) ? i.scripts.some((g) => Object.keys(g.data).length) : Object.keys(i.data).length);
+  function zipEnd(bytes2, view) {
+    for (let i = bytes2.length - 22; i >= Math.max(0, bytes2.length - 65557); i--) if (view.getUint32(i, true) === 101010256) return i;
+    return -1;
+  }
+  function zipStart(bytes2) {
+    const view = new DataView(bytes2.buffer, bytes2.byteOffset, bytes2.byteLength);
+    const end = zipEnd(bytes2, view);
+    return end < 0 ? -1 : Math.max(0, end - view.getUint32(end + 12, true) - view.getUint32(end + 16, true));
+  }
+  var UNZIP_LIMIT = 256 * 1024 * 1024;
+  async function inflate(raw, declared, left) {
+    const cap = Math.min(declared, left);
+    const reader = new Blob([raw.slice()]).stream().pipeThrough(new DecompressionStream("deflate-raw")).getReader();
+    const parts = [];
+    let total = 0;
+    for (; ; ) {
+      const { done, value: value2 } = await reader.read();
+      if (done) break;
+      total += value2.byteLength;
+      if (total > cap) {
+        void reader.cancel();
+        throw new Error(declared > left ? "The zip unpacks to too much" : "A file in the zip is larger than the zip says");
+      }
+      parts.push(value2);
+    }
+    const out = new Uint8Array(total);
+    let at3 = 0;
+    for (const p2 of parts) {
+      out.set(p2, at3);
+      at3 += p2.byteLength;
+    }
+    return out;
+  }
+  async function unzip(bytes2) {
+    const view = new DataView(bytes2.buffer, bytes2.byteOffset, bytes2.byteLength);
+    const end = zipEnd(bytes2, view);
+    if (end < 0) return [];
+    const count = view.getUint16(end + 10, true);
+    const dirOffset = view.getUint32(end + 16, true);
+    const before = Math.max(0, end - view.getUint32(end + 12, true) - dirOffset);
+    let at3 = before + dirOffset;
+    const out = [];
+    let left = UNZIP_LIMIT;
+    for (let n = 0; n < count && at3 + 46 <= end && view.getUint32(at3, true) === 33639248; n++) {
+      const method = view.getUint16(at3 + 10, true);
+      const size = view.getUint32(at3 + 20, true);
+      const unpacked = view.getUint32(at3 + 24, true);
+      const nameLength = view.getUint16(at3 + 28, true);
+      const skip = view.getUint16(at3 + 30, true) + view.getUint16(at3 + 32, true);
+      const local = before + view.getUint32(at3 + 42, true);
+      const path = new TextDecoder().decode(bytes2.subarray(at3 + 46, at3 + 46 + nameLength));
+      at3 += 46 + nameLength + skip;
+      if (path.endsWith("/") || local + 30 > end || view.getUint32(local, true) !== 67324752) continue;
+      const start2 = local + 30 + view.getUint16(local + 26, true) + view.getUint16(local + 28, true);
+      const raw = bytes2.subarray(start2, start2 + size);
+      if (method === 0) out.push({ path, data: raw });
+      else if (method === 8) {
+        const data = await inflate(raw, unpacked, left);
+        left -= data.byteLength;
+        out.push({ path, data });
+      }
+    }
+    return out;
+  }
+  async function scriptsFromZip(bytes2) {
+    const out = [];
+    const folders = /* @__PURE__ */ new Map();
+    for (const file of await unzip(bytes2)) {
+      if (!/\.json$/i.test(file.path)) continue;
+      let items2;
+      try {
+        items2 = normalizeLibrary([JSON.parse(new TextDecoder().decode(file.data))].flat());
+      } catch {
+        continue;
+      }
+      const dir = file.path.includes("/") ? file.path.slice(0, file.path.lastIndexOf("/")).split("/").pop() : "";
+      if (!dir) {
+        out.push(...items2);
+        continue;
+      }
+      let folder = folders.get(dir);
+      if (!folder) {
+        folder = { type: "folder", id: newScriptId(), name: dir, enabled: true, icon: "", color: "", scripts: [] };
+        folders.set(dir, folder);
+        out.push(folder);
+      }
+      for (const item2 of items2) {
+        if (isFolder(item2)) out.push(item2);
+        else folder.scripts.push(item2);
+      }
+    }
+    return out;
+  }
+  var fileName = (name, ext = "json") => `${([...name].map((c) => c.charCodeAt(0) < 32 || '\\/:*?"<>|'.includes(c) ? " " : c).join("").replace(/\s+/g, " ").trim() || "scripts").slice(0, 80)}.${ext}`;
+  function pngText(bytes2) {
+    const sig = [137, 80, 78, 71, 13, 10, 26, 10];
+    if (bytes2.length < 8 || sig.some((b2, i) => bytes2[i] !== b2)) return null;
+    const view = new DataView(bytes2.buffer, bytes2.byteOffset, bytes2.byteLength);
+    const latin1 = new TextDecoder("latin1");
+    const found = /* @__PURE__ */ Object.create(null);
+    for (let at3 = 8; at3 + 8 <= bytes2.length; ) {
+      const length = view.getUint32(at3);
+      const type = latin1.decode(bytes2.subarray(at3 + 4, at3 + 8));
+      const data = bytes2.subarray(at3 + 8, at3 + 8 + length);
+      if (type === "tEXt") {
+        const zero = data.indexOf(0);
+        if (zero > 0) found[latin1.decode(data.subarray(0, zero))] = latin1.decode(data.subarray(zero + 1));
+      }
+      if (type === "IEND") break;
+      at3 += 12 + length;
+    }
+    return found;
+  }
+  function pngCardJson(bytes2) {
+    const found = pngText(bytes2);
+    if (!found) return null;
+    const b64 = found.ccv3 ?? found.chara;
+    if (!b64) return null;
+    try {
+      const raw = atob(b64);
+      return new TextDecoder().decode(Uint8Array.from(raw, (c) => c.charCodeAt(0)));
+    } catch {
+      return null;
+    }
+  }
+  async function scriptsFromFile(name, bytes2) {
+    const base = name.replace(/\.[^.]+$/, "");
+    let items2 = [];
+    let from = base;
+    const fromJson = (json2) => {
+      const o2 = json2 && typeof json2 === "object" ? json2 : null;
+      const data = o2?.data && typeof o2.data === "object" ? o2.data : o2?.extensions ? o2 : null;
+      if (data && (o2?.spec || data.extensions)) {
+        from = typeof data.name === "string" && data.name ? data.name : base;
+        return cardTree(data);
+      }
+      return normalizeLibrary(Array.isArray(json2) ? json2 : [json2]);
+    };
+    if (/\.zip$/i.test(name)) {
+      items2 = await scriptsFromZip(bytes2);
+    } else if (/\.png$/i.test(name)) {
+      const json2 = pngCardJson(bytes2);
+      try {
+        items2 = json2 ? fromJson(JSON.parse(json2)) : [];
+      } catch {
+        items2 = [];
+      }
+    } else {
+      const text2 = new TextDecoder().decode(bytes2);
+      if (/\.json$/i.test(name)) {
+        try {
+          items2 = fromJson(JSON.parse(text2));
+        } catch {
+          items2 = [];
+        }
+      } else if (text2.trim()) items2 = normalizeLibrary([{ name: base, code: text2 }]);
+    }
+    const fresh = items2.map((i) => isFolder(i) ? { ...i, id: newScriptId(), scripts: i.scripts.map((g) => ({ ...g, id: newScriptId() })) } : { ...i, id: newScriptId() });
+    return { items: fresh, from };
+  }
+
+  // src/assets/edit.ts
+  function nameFromFile(fileName2) {
+    return fileName2.replace(/^.*[\\/]/, "").trim();
+  }
+  function parseWords(text2) {
+    return [...new Set(text2.split(/[,，、\n]/).map((w2) => w2.trim()).filter(Boolean))].slice(0, 20);
+  }
+  var same = (a, place, file) => a.place === place && a.file === file;
+  function listFile(assets, place, file, name, hash) {
+    const clean = name.trim();
+    if (!clean) return assets;
+    const extra = hash ? { hash } : {};
+    if (assets.some((a) => same(a, place, file))) return assets.map((a) => same(a, place, file) ? { ...a, name: clean, ...extra } : a);
+    return [...assets, { name: clean, file, place, ...extra }];
+  }
+  function alreadyListed(assets, name, hash) {
+    return assets.some((a) => a.hash === hash && a.name === name.trim());
+  }
+  function editAsset(assets, place, file, change) {
+    return assets.map((a) => {
+      if (!same(a, place, file)) return a;
+      const next2 = { ...a };
+      if (change.name !== void 0 && change.name.trim()) next2.name = change.name.trim();
+      if (change.person !== void 0) {
+        if (change.person.trim()) next2.person = change.person.trim();
+        else delete next2.person;
+      }
+      if (change.words !== void 0) {
+        if (change.words.length) next2.words = change.words;
+        else delete next2.words;
+      }
+      return next2;
+    });
+  }
+  function unlistFile(assets, place, file) {
+    return assets.filter((a) => !same(a, place, file));
+  }
+  function setSpriteWords(assets, sprite, words) {
+    if (!words.length) return unlistFile(assets, "sprite", sprite.file);
+    if (assets.some((a) => same(a, "sprite", sprite.file))) return editAsset(assets, "sprite", sprite.file, { words });
+    return [...assets, { name: sprite.name, file: sprite.file, place: "sprite", words }];
+  }
+
+  // src/assets/card-file.ts
+  var EXT = { png: "png", jpeg: "jpg", gif: "gif", webp: "webp", avif: "avif" };
+  var PNG_ASSET = "chara-ext-asset_:";
+  var PROMPT_MAX = 2e3;
+  function pictureType(b2) {
+    const has = (at3, text2) => [...text2].every((c, i) => b2[at3 + i] === c.charCodeAt(0));
+    if (b2[0] === 137 && has(1, "PNG")) return "png";
+    if (b2[0] === 255 && b2[1] === 216 && b2[2] === 255) return "jpeg";
+    if (has(0, "GIF8")) return "gif";
+    if (has(0, "RIFF") && has(8, "WEBP")) return "webp";
+    if (has(4, "ftypavif") || has(4, "ftypavis")) return "avif";
+    return null;
+  }
+  var fromBase64 = (text2) => {
+    try {
+      return Uint8Array.from(atob(text2.replace(/\s+/g, "")), (c) => c.charCodeAt(0));
+    } catch {
+      return null;
+    }
+  };
+  var object = (v) => v && typeof v === "object" && !Array.isArray(v) ? v : null;
+  var parseJson = (bytes2) => {
+    if (!bytes2) return null;
+    try {
+      return object(JSON.parse(new TextDecoder().decode(bytes2)));
+    } catch {
+      return null;
+    }
+  };
+  var stem = (path) => path.replace(/^.*\//, "").replace(/\.[^.]*$/, "");
+  async function readCardFile(fileName2, bytes2) {
+    const files = /* @__PURE__ */ new Map();
+    let card;
+    let form = "none";
+    const chunks = pngText(bytes2);
+    const pngJson = chunks ? chunks.ccv3 ?? chunks.chara : void 0;
+    if (chunks && pngJson) {
+      form = "png";
+      card = parseJson(fromBase64(pngJson));
+      for (const [key, value2] of Object.entries(chunks)) {
+        const data2 = key.startsWith(PNG_ASSET) ? fromBase64(value2) : null;
+        if (data2) files.set(key.slice(PNG_ASSET.length), data2);
+      }
+    } else {
+      const entries = await unzip(bytes2).catch(() => []);
+      if (entries.length) form = "zip";
+      for (const e of entries) files.set(e.path, e.data);
+      card = parseJson(files.get("card.json"));
+      if (!card) {
+        const bundle = await readBundle(entries);
+        if (bundle) return bundle;
+      }
+    }
+    const data = object(card?.data) ?? card ?? {};
+    const name = typeof data.name === "string" && data.name.trim() || fileName2.replace(/^.*[\\/]/, "").replace(/\.[^.]*$/, "");
+    const prompts = /* @__PURE__ */ new Map();
+    for (const [path, bytes3] of files) {
+      const m2 = /^x_meta\/([^/]+)\.json$/.exec(path);
+      const meta = m2 ? parseJson(bytes3) : null;
+      if (m2 && typeof meta?.Description === "string" && meta.Description.trim()) prompts.set(m2[1], meta.Description.trim().slice(0, PROMPT_MAX));
+    }
+    const list = card ? Array.isArray(data.assets) ? data.assets : [{ type: "icon", uri: "ccdefault:", name: "main", ext: "png" }] : [];
+    const listed = list.map((raw) => {
+      const r = object(raw) ?? {};
+      return { type: String(r.type ?? "").trim(), uri: String(r.uri ?? "").trim(), name: String(r.name ?? "").trim() };
+    });
+    const icons = listed.filter((a) => a.type === "icon");
+    const portrait = icons.find((a) => a.name === "main") ?? icons[0];
+    let portraitBytes;
+    if (portrait) {
+      const at3 = /^(?:embeded|embedded):\/\/(.+)$/.exec(portrait.uri) ?? /^__asset:(.+)$/.exec(portrait.uri);
+      if (at3) portraitBytes = files.get(at3[1]);
+      else if (portrait.uri === "ccdefault:") portraitBytes = form === "png" ? bytes2 : form === "zip" ? bytes2.subarray(0, Math.max(0, zipStart(bytes2))) : null;
+    }
+    const portraitType = portraitBytes?.length ? pictureType(portraitBytes) : null;
+    const pictures = [];
+    const leftOut = [];
+    const used = /* @__PURE__ */ new Set(["card.json"]);
+    const emotions = /* @__PURE__ */ new Set();
+    for (const a of listed) {
+      const inFile = /^(?:embeded|embedded):\/\/(.+)$/.exec(a.uri) ?? /^__asset:(.+)$/.exec(a.uri);
+      const path = inFile?.[1] ?? "";
+      if (path) used.add(path);
+      const what = a.name || path || a.uri;
+      const leave = (reason) => leftOut.push({ what, reason });
+      if (a === portrait) leave("portrait");
+      else if (a.type === "user_icon") leave("user-icon");
+      else if (a.uri === "ccdefault:") leave("default");
+      else if (/^https?:/i.test(a.uri)) leave("remote");
+      else {
+        let bytes3;
+        if (path) bytes3 = files.get(path);
+        else if (/^data:[^,]*;base64,/i.test(a.uri)) bytes3 = fromBase64(a.uri.slice(a.uri.indexOf(",") + 1));
+        else {
+          leave("unknown-uri");
+          continue;
+        }
+        if (!bytes3) {
+          leave(path ? "missing" : "not-picture");
+          continue;
+        }
+        const type = pictureType(bytes3);
+        if (!type) {
+          leave("not-picture");
+          continue;
+        }
+        const kind = a.type === "emotion" ? "emotion" : a.type === "icon" ? "icon" : "picture";
+        const own = path ? stem(path) : "";
+        const named = a.name || own;
+        if (!named) {
+          leave("unknown-uri");
+          continue;
+        }
+        if (kind === "emotion") {
+          if (emotions.has(named.toLowerCase())) {
+            leave("same-emotion");
+            continue;
+          }
+          emotions.add(named.toLowerCase());
+        }
+        const prompt = own ? prompts.get(own) : void 0;
+        pictures.push({ kind, name: named, path, type, fileName: `${own || "picture"}.${EXT[type]}`, bytes: bytes3, hash: bytesHash(bytes3), ...prompt ? { prompt } : {} });
+      }
+    }
+    for (const [path, bytes3] of files) {
+      if (used.has(path) || /^x_meta\/[^/]+\.json$/.test(path)) continue;
+      leftOut.push({ what: path, reason: form === "zip" && !path.includes("/") && !pictureType(bytes3) ? "app-data" : "not-listed" });
+    }
+    return { card, name, form, pictures, leftOut, ...portraitBytes && portraitType ? { portrait: { bytes: portraitBytes, type: portraitType } } : {} };
+  }
+  var PICTURE_FILE = /\.(png|jpe?g|gif|webp|avif)$/i;
+  function jsonKind(json2) {
+    if (!json2) return null;
+    if (Array.isArray(json2.qrList) || json2.format === "dispensa-qr" && Array.isArray(json2.sets)) return "qr";
+    const data = object(json2.data) ?? json2;
+    if (String(json2.spec ?? "").startsWith("chara_card") || typeof data.name === "string" && ("first_mes" in data || "description" in data)) return "card";
+    if (json2.entries && typeof json2.entries === "object") return "lorebook";
+    return null;
+  }
+  async function readBundle(entries) {
+    const all = [...entries];
+    for (const e of entries) if (/\.zip$/i.test(e.path)) for (const inner of await unzip(e.data).catch(() => [])) all.push({ path: `${e.path}/${inner.path}`, data: inner.data });
+    let found = null;
+    let cardPath = "";
+    for (const e of all.filter((x2) => /\.(charx|png|jpe?g)$/i.test(x2.path))) {
+      const inner = await readCardFile(e.path, e.data).catch(() => null);
+      if (inner?.card) {
+        found = inner;
+        cardPath = e.path;
+        break;
+      }
+    }
+    const qrSets = [];
+    const lorebooks = [];
+    for (const e of all.filter((x2) => /\.json$/i.test(x2.path))) {
+      const json2 = parseJson(e.data);
+      const kind = jsonKind(json2);
+      const name = stem(e.path);
+      if (kind === "card" && !found) {
+        const data = object(json2.data) ?? json2;
+        found = { card: json2, name: typeof data.name === "string" && data.name.trim() || name, form: "none", pictures: [], leftOut: [] };
+        cardPath = e.path;
+      } else if (kind === "qr") qrSets.push({ name: typeof json2.name === "string" && json2.name.trim() ? json2.name.trim() : name, json: json2 });
+      else if (kind === "lorebook") lorebooks.push({ name, json: json2 });
+    }
+    if (!found) return null;
+    const pictures = [...found.pictures];
+    for (const e of all) {
+      if (e.path === cardPath || !PICTURE_FILE.test(e.path)) continue;
+      const type = pictureType(e.data);
+      if (!type) continue;
+      const own = stem(e.path);
+      pictures.push({ kind: "picture", name: e.path.replace(/^.*\//, ""), path: e.path, type, fileName: `${own}.${EXT[type]}`, bytes: e.data, hash: bytesHash(e.data) });
+    }
+    const source = all.find((e) => e.path === cardPath);
+    return { ...found, pictures, leftOut: found.leftOut, ...source ? { source: { name: source.path.replace(/^.*\//, ""), bytes: source.data } } : {}, ...qrSets.length ? { qrSets } : {}, ...lorebooks.length ? { lorebooks } : {} };
+  }
+  function picturesToImport(pictures, assets) {
+    const seen2 = [...assets];
+    return pictures.filter((p2) => {
+      if (p2.kind === "emotion") return true;
+      if (alreadyListed(seen2, p2.name, p2.hash)) return false;
+      seen2.push({ name: p2.name, file: p2.path, place: "gallery", hash: p2.hash });
+      return true;
+    });
+  }
+
+  // src/assets/card-import.ts
+  async function importCardFile(found, file, into, progress = () => void 0) {
+    let target = into?.id ?? "";
+    if (!into) {
+      progress(t("Making the character…", "캐릭터 만드는 중…"));
+      const cardFile = found.source ? new File([found.source.bytes.slice()], found.source.name, { type: "image/png" }) : file;
+      target = await importCharacter(found.form === "png" ? cardFile : found.card ?? {}, cardFile.name, !found.lorebooks?.length) ?? "";
+      if (!target) throw new Error(t("Marinara made no character", "마리나라가 캐릭터를 만들지 않았어요"));
+      if (found.form !== "png" && found.portrait) {
+        const portrait = found.portrait;
+        await setPortrait(target, portrait.bytes, portrait.type).catch(() => void 0);
+      }
+    }
+    const todo = picturesToImport(found.pictures, into?.assets ?? []);
+    const added = [];
+    const failed = [];
+    let sprites = 0;
+    let done = 0;
+    for (const [i, p2] of todo.entries()) {
+      progress(t(`Importing ${i + 1} of ${todo.length}…`, `${todo.length}장 중 ${i + 1}장 가져오는 중…`));
+      try {
+        if (p2.kind === "emotion") {
+          await uploadSprite(target, p2.name, p2.bytes, p2.type);
+          sprites++;
+        } else {
+          const pic = await uploadToGallery(target, new Blob([p2.bytes.slice()], { type: `image/${p2.type}` }), p2.fileName, p2.prompt ?? "");
+          added.push({ name: p2.name, file: pic.file, place: "gallery", hash: p2.hash });
+        }
+        done++;
+      } catch (e) {
+        failed.push(`${p2.name}: ${e instanceof Error ? e.message : e}`);
+      }
+    }
+    if (added.length) {
+      try {
+        const now = await readAssets(target);
+        await saveAssets(target, added.reduce((list, a) => listFile(list, "gallery", a.file, a.name, a.hash), now));
+      } catch (e) {
+        failed.push(t(`The names were not saved (the pictures are in the Gallery): ${e instanceof Error ? e.message : e}`, `이름을 저장하지 못했어요 (그림은 갤러리에 있어요): ${e instanceof Error ? e.message : e}`));
+      }
+    }
+    const extras = [];
+    for (const book of found.lorebooks ?? []) {
+      progress(t(`Lorebook ${book.name}…`, `로어북 ${book.name}…`));
+      await importLorebook(book.json, book.name, target).then(
+        (r) => extras.push(r.already ? t(`lorebook ${book.name} (there already)`, `로어북 ${book.name} (이미 있음)`) : t(`lorebook ${book.name}`, `로어북 ${book.name}`)),
+        (e) => failed.push(`${book.name}: ${e instanceof Error ? e.message : e}`)
+      );
+    }
+    for (const set of found.qrSets ?? []) {
+      const importQrs = window.__dispensa?.importQrs;
+      if (typeof importQrs !== "function") {
+        failed.push(t(`${set.name}: QR sets need Dispensa`, `${set.name}: QR 세트는 Dispensa가 있어야 가져올 수 있어요`));
+        continue;
+      }
+      await importQrs(set.json, set.name, { characterId: target }).then(
+        (n) => n ? extras.push(t(`QR set ${set.name} (${n})`, `QR 세트 ${set.name} (${n}개)`)) : failed.push(t(`${set.name}: not a QR file`, `${set.name}: QR 파일이 아니에요`)),
+        (e) => failed.push(`${set.name}: ${e instanceof Error ? e.message : e}`)
+      );
+    }
+    return { characterId: target, total: todo.length, done, skipped: found.pictures.length - todo.length, failed, extras, changed: added.length > 0 || sprites > 0 };
+  }
+  function cardImportMessage(name, r) {
+    const pictures = r.total ? t(`Imported ${r.done} of ${r.total} pictures from ${name}.`, `${name}에서 그림 ${r.total}장 중 ${r.done}장 가져옴.`) : t(`${name}: no new pictures.`, `${name}: 새 그림 없음.`);
+    const failed = r.failed.length ? t(` ${r.failed.length} failed: ${r.failed.join("; ")}`, ` 실패 ${r.failed.length}개: ${r.failed.join("; ")}`) : "";
+    return pictures + (r.extras.length ? ` + ${r.extras.join(", ")}` : "") + failed;
+  }
+
+  // src/ui/dom.ts
+  var BACKDROP_CSS = ".back { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; padding: 12px; background: rgb(0 0 0 / .45); }";
+  function el(tag, attrs = {}, ...children) {
+    const node = document.createElement(tag);
+    for (const [k2, v] of Object.entries(attrs)) {
+      if (v === void 0 || v === null || v === false) continue;
+      if (k2.startsWith("on") && typeof v === "function") node.addEventListener(k2.slice(2), v);
+      else if (k2 === "style" && typeof v === "string") node.setAttribute("style", v);
+      else if (k2 in node && k2 !== "list") node[k2] = v;
+      else node.setAttribute(k2, v === true ? "" : String(v));
+    }
+    for (const c of children) if (c !== null && c !== void 0 && c !== false) node.append(c);
+    return node;
+  }
+  var picking = null;
+  function pickFile(onFile, accept) {
+    picking?.remove();
+    const input2 = document.createElement("input");
+    input2.type = "file";
+    const phone = window.matchMedia?.("(pointer: coarse)").matches ?? false;
+    const picturesOnly = accept.split(",").every((a) => a.trim().startsWith("image/"));
+    if (!phone || picturesOnly) input2.accept = accept;
+    input2.style.display = "none";
+    const done = () => {
+      input2.remove();
+      if (picking === input2) picking = null;
+    };
+    input2.addEventListener("change", () => {
+      const file = input2.files?.[0];
+      done();
+      if (file) onFile(file);
+    });
+    input2.addEventListener("cancel", done);
+    document.body.append(input2);
+    picking = input2;
+    input2.click();
+  }
+
+  // src/ui/window-tabs.ts
+  var TABS_CSS = `
+.win.tabbed { width: min(1040px, 100%) !important; height: min(860px, 100%); max-height: none; }
+header .tabs { display: flex; gap: 2px; padding: 2px; border: 1px solid var(--d-line); border-radius: 999px; background: var(--d-field); flex: none; }
+header .tabs button { border: none; background: none; border-radius: 999px; padding: 4px 14px; display: inline-flex; align-items: center; color: var(--d-muted); }
+header .tabs button[aria-current="page"] { color: var(--d-accent, var(--d-text)); background: var(--d-hl-bg); box-shadow: inset 0 0 0 1px var(--d-btn-border-active); }
+header .tabs svg { width: 16px; height: 16px; }
+header select.lang { width: auto; flex: none; padding: 4px 6px; font-size: 12px; }
+header button.gear { display: inline-flex; align-items: center; padding: 5px 7px; }
+header button.gear[aria-pressed="true"] { background: var(--d-hl-bg); box-shadow: inset 0 0 0 1px var(--d-btn-border-active); }
+@media (max-width: 600px) { header { flex-wrap: wrap; } header .tabs { order: 5; width: 100%; } header .tabs button { flex: 1; justify-content: center; } header select.lang { width: 4.4em; } }
+`;
+  var TABS = [
+    { tab: "components", icon: ICON_PUZZLE, name: () => t("Components", "컴포넌트") },
+    { tab: "scripts", icon: ICON_SCROLL, name: () => t("Scripts", "스크립트") },
+    { tab: "assets", icon: ICON_IMAGES, name: () => t("Character assets", "캐릭터 에셋") },
+    { tab: "status", icon: ICON_BOOK, name: () => t("Status", "상태창") }
+  ];
+  function tabHeader(active, go, gear = { open: false }) {
+    const bar = el("nav", { className: "tabs", "aria-label": t("Fornello tabs", "Fornello 탭") });
+    for (const { tab, icon, name } of TABS) {
+      const b2 = el("button", { type: "button", title: name(), "aria-label": name(), "aria-current": tab === active ? "page" : void 0, onclick: () => tab !== active && go(tab) });
+      b2.innerHTML = icon;
+      bar.append(b2);
+    }
+    const lang2 = el(
+      "select",
+      { className: "lang", title: t("Language", "언어"), "aria-label": t("Language", "언어"), "data-key": "lang", onchange: (e) => setLangChoice(e.target.value) },
+      ...["auto", "en", "ko"].map((c) => el("option", { value: c, selected: c === langChoice() }, `🌐 ${LANG_NAMES[c]()}`))
+    );
+    const cog = el("button", { type: "button", className: "gear", title: t("Fornello settings", "Fornello 설정"), "aria-label": t("Fornello settings", "Fornello 설정"), "aria-pressed": String(gear.open), onclick: () => gear.toggle ? gear.toggle() : go("components", { gear: true }) });
+    cog.innerHTML = ICON_GEAR;
+    return [el("h2", { style: "flex:none" }, "🔥 Fornello"), bar, el("span", { style: "flex:1" }), lang2, cog];
+  }
+
+  // src/shared/form.ts
+  var FORM_CSS = `
+.sec { display: flex; flex-direction: column; }
+.sec + .sec { margin-top: 14px; }
+.sec-h { display: flex; align-items: center; gap: 6px; min-height: 24px; margin: 0 0 2px; }
+.sec-h h3 { margin: 0; font-size: 12px; font-weight: 700; letter-spacing: .02em; color: var(--d-muted); }
+.sec-h .spacer { flex: 1; }
+.set { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 12px; min-height: 42px; padding: 7px 0; border-top: 1px solid var(--d-divider); }
+.sec-h + .set, .set:first-child { border-top: 0; }
+.set > .lab { flex: 1 1 120px; min-width: 0; display: flex; align-items: center; gap: 6px; color: var(--d-text); font-size: 13px; }
+.set > .ctl { margin-left: auto; display: flex; align-items: center; justify-content: flex-end; gap: 6px; max-width: 100%; min-width: 0; }
+.set > .ctl > select, .set > .ctl > input:not([type=checkbox]):not([type=radio]) { width: auto; min-width: 130px; max-width: 100%; }
+.set.stack > .ctl { flex: 1 1 100%; margin-left: 0; justify-content: flex-start; }
+.set.stack > .ctl > * { flex: 1; }
+.switch { position: relative; display: inline-flex; width: 36px; height: 20px; flex-shrink: 0; }
+.switch input { appearance: none; -webkit-appearance: none; margin: 0; width: 100%; height: 100%; border-radius: 999px; cursor: pointer;
+  background: var(--d-field); border: 1px solid var(--d-field-border); transition: background-color .18s ease, border-color .18s ease; }
+.switch input:checked { background: var(--d-accent); border-color: var(--d-accent); }
+.switch input:focus-visible { outline: none; box-shadow: 0 0 0 2px var(--d-ring); }
+.switch input:disabled { opacity: .45; cursor: not-allowed; }
+.switch:has(input:disabled) { filter: grayscale(1); opacity: .6; }
+.switch .knob { position: absolute; top: 4px; left: 4px; width: 12px; height: 12px; border-radius: 50%; pointer-events: none;
+  background: var(--d-muted); transition: transform .18s ease, background-color .18s ease; }
+.switch input:checked + .knob { transform: translateX(16px); background: var(--d-accent-text); }
+/* fixed size whatever the surrounding button rules say */
+button.help { position: relative; flex-shrink: 0; width: 16px !important; height: 16px !important; min-width: 16px !important; padding: 0 !important; border-radius: 50% !important; display: inline-grid; place-items: center;
+  font: 700 10px/1 var(--d-font); color: var(--d-muted); background: transparent; border: 1px solid var(--d-line); cursor: help; }
+button.help::after { content: ""; position: absolute; inset: -8px; }
+button.help:hover, button.help[aria-expanded="true"] { color: var(--d-hl-text); border-color: var(--d-btn-border-hover); background: var(--d-hl-bg); transform: none; }
+.tip { position: fixed; z-index: 2147483000; max-width: min(300px, calc(100vw - 24px)); padding: 9px 12px; white-space: pre-line;
+  font: 400 12.5px/1.55 var(--d-font); color: var(--d-text); background: var(--d-panel-solid); border: 1px solid var(--d-line);
+  border-radius: var(--d-radius-sm); box-shadow: var(--d-shadow); animation: d-tip-in .12s ease-out; }
+@keyframes d-tip-in { from { opacity: 0; transform: translateY(-3px); } }
+.seg2 { position: relative; display: inline-flex; align-items: stretch; padding: 3px; border-radius: 999px; background: var(--d-field); border: 1px solid var(--d-field-border); max-width: 100%; }
+.seg2 > button { position: relative; z-index: 1; flex: 1 1 auto; width: auto !important; min-width: 0; justify-content: center; border: 0 !important; background: transparent !important; box-shadow: none !important; transform: none !important;
+  color: var(--d-muted); font-weight: 600; padding: 5px 14px; border-radius: 999px; transition: color .2s ease; }
+.seg2 > button:hover { color: var(--d-text); }
+.seg2 > button[aria-pressed="true"] { color: var(--d-btn-text-active); }
+.seg2 > button:focus-visible { outline: none; box-shadow: 0 0 0 2px var(--d-ring) !important; }
+.seg2 > .pill { position: absolute; z-index: 0; top: 3px; bottom: 3px; left: 0; width: 0; border-radius: 999px; pointer-events: none;
+  background: var(--d-btn-bg-active); border: 1px solid var(--d-btn-border-active); box-shadow: 0 1px 4px rgb(0 0 0 / .18);
+  transition: transform .26s cubic-bezier(.3, .7, .2, 1), width .26s cubic-bezier(.3, .7, .2, 1); }
+.d-enter { animation: d-pop-in .18s ease-out; }
+@keyframes d-pop-in { from { opacity: 0; transform: translateY(8px) scale(.985); } }
+.d-fade { animation: d-fade-in .18s ease-out; }
+@keyframes d-fade-in { from { opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
+`;
+  function h2(tag, cls, ...kids) {
+    const node = document.createElement(tag);
+    if (cls) node.className = cls;
+    for (const k2 of kids) if (k2 !== null && k2 !== void 0 && k2 !== false) node.append(k2);
+    return node;
+  }
+  var open = null;
+  var hoverTimer = null;
+  var tipCount = 0;
+  function closeTip() {
+    if (!open) return;
+    open.tip.remove();
+    open.btn.setAttribute("aria-expanded", "false");
+    open = null;
+    document.removeEventListener("pointerdown", onOutside, true);
+    window.removeEventListener("keydown", onKey, true);
+    window.removeEventListener("scroll", closeTip, true);
+    window.removeEventListener("resize", closeTip);
+  }
+  function onOutside(e) {
+    if (!open) return;
+    const path = e.composedPath();
+    if (!path.includes(open.btn) && !path.includes(open.tip)) closeTip();
+  }
+  function onKey(e) {
+    if (e.key !== "Escape" || !open) return;
+    e.preventDefault();
+    e.stopPropagation();
+    open.btn.focus();
+    closeTip();
+  }
+  function showTip(btn, text2, pinned) {
+    if (open?.btn === btn) {
+      open.pinned ||= pinned;
+      return;
+    }
+    closeTip();
+    const tip = h2("div", "tip", text2);
+    tip.id = `d-tip-${++tipCount}`;
+    tip.setAttribute("role", "tooltip");
+    const root2 = btn.getRootNode();
+    (root2 instanceof ShadowRoot ? root2 : document.body).append(tip);
+    const r = btn.getBoundingClientRect();
+    const w2 = tip.offsetWidth;
+    const ht2 = tip.offsetHeight;
+    const left = Math.min(Math.max(8, r.left + r.width / 2 - w2 / 2), window.innerWidth - w2 - 8);
+    const below = r.bottom + 8;
+    tip.style.left = `${left}px`;
+    tip.style.top = `${below + ht2 > window.innerHeight - 8 ? Math.max(8, r.top - ht2 - 8) : below}px`;
+    btn.setAttribute("aria-expanded", "true");
+    btn.setAttribute("aria-describedby", tip.id);
+    open = { btn, tip, pinned };
+    document.addEventListener("pointerdown", onOutside, true);
+    window.addEventListener("keydown", onKey, true);
+    window.addEventListener("scroll", closeTip, true);
+    window.addEventListener("resize", closeTip);
+  }
+  function helpTip(text2, about = "") {
+    const btn = h2("button", "help", "?");
+    btn.type = "button";
+    btn.setAttribute("aria-label", about ? t(`Help: ${about}`, `도움말: ${about}`) : t("Help", "도움말"));
+    btn.setAttribute("aria-expanded", "false");
+    btn.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (open?.btn === btn && open.pinned) closeTip();
+      else showTip(btn, text2, true);
+    });
+    btn.addEventListener("pointerenter", (e) => {
+      if (e.pointerType !== "mouse") return;
+      if (hoverTimer) clearTimeout(hoverTimer);
+      hoverTimer = setTimeout(() => showTip(btn, text2, false), 280);
+    });
+    btn.addEventListener("pointerleave", () => {
+      if (hoverTimer) clearTimeout(hoverTimer);
+      if (open?.btn === btn && !open.pinned) closeTip();
+    });
+    return btn;
+  }
+  function toggle(checked, onChange, label, key) {
+    const input2 = document.createElement("input");
+    input2.type = "checkbox";
+    input2.checked = checked;
+    input2.setAttribute("role", "switch");
+    input2.setAttribute("aria-label", label);
+    if (key) input2.dataset.key = key;
+    const calm = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+    input2.addEventListener("change", () => {
+      const on = input2.checked;
+      if (calm) onChange(on);
+      else setTimeout(() => onChange(on), 170);
+    });
+    return h2("label", "switch", input2, h2("span", "knob"));
+  }
+  function setting(label, control, help, opts = {}) {
+    const name = typeof label === "string" ? label : "";
+    return h2(
+      "div",
+      `set${opts.stack ? " stack" : ""}`,
+      h2("div", "lab", typeof label === "string" ? h2("span", "", label) : label, help ? helpTip(help, name) : null),
+      h2("div", "ctl", ...Array.isArray(control) ? control : [control])
+    );
+  }
+  function section(title, help, extra, ...kids) {
+    return h2("section", "sec", h2("div", "sec-h", h2("h3", "", title), help ? helpTip(help, title) : null, h2("span", "spacer"), ...extra), ...kids);
+  }
+  var livePill = /* @__PURE__ */ new Map();
+  function segmented(key, options, active, onChange, label) {
+    const bar = h2("div", "seg2");
+    bar.setAttribute("role", "group");
+    bar.setAttribute("aria-label", label);
+    const pill = h2("span", "pill");
+    bar.append(pill);
+    const buttons = options.map((o2) => {
+      const b2 = h2("button", "", o2.label);
+      b2.type = "button";
+      b2.setAttribute("aria-pressed", String(o2.value === active));
+      if (o2.title) {
+        b2.title = o2.title;
+        b2.setAttribute("aria-label", o2.title);
+      }
+      b2.addEventListener("click", () => {
+        if (o2.value !== active) onChange(o2.value);
+      });
+      bar.append(b2);
+      return b2;
+    });
+    const place = (value2, animate) => {
+      const b2 = buttons[options.findIndex((o2) => o2.value === value2)];
+      if (!b2 || !b2.offsetWidth) return false;
+      pill.style.transition = animate ? "" : "none";
+      pill.style.width = `${b2.offsetWidth}px`;
+      pill.style.transform = `translateX(${b2.offsetLeft}px)`;
+      return true;
+    };
+    const old = livePill.get(key);
+    let startAt = null;
+    if (old?.isConnected && old.offsetWidth) startAt = { x: new DOMMatrixReadOnly(getComputedStyle(old).transform).m41, w: old.offsetWidth };
+    livePill.set(key, pill);
+    let tries = 0;
+    const start2 = () => {
+      if (!bar.isConnected || !place(active, false)) {
+        if (++tries < 30) requestAnimationFrame(start2);
+        return;
+      }
+      if (startAt) {
+        pill.style.width = `${startAt.w}px`;
+        pill.style.transform = `translateX(${startAt.x}px)`;
+        void pill.offsetWidth;
+        place(active, true);
+      }
+      watch();
+    };
+    const watch = () => {
+      setTimeout(() => new ResizeObserver(() => place(active, false)).observe(bar), 320);
+    };
+    requestAnimationFrame(start2);
+    return bar;
+  }
+
+  // src/ui/asset-manager.ts
+  var STYLE4 = `
+${THEME_TOKENS}
+:host { position: fixed; inset: 0; z-index: 2147482700; }
+* { box-sizing: border-box; }
+${CONTROLS}
+${FORM_CSS}
+${BACKDROP_CSS}
+${TABS_CSS}
+details.part { border: 1px solid var(--d-line); border-radius: var(--d-radius-sm); padding: 6px 10px; margin-bottom: 10px; }
+details.part > summary { cursor: pointer; color: var(--d-muted); font-size: 12px; }
+details.part[open] > summary { margin-bottom: 6px; }
+.win { width: min(980px, 100%); height: min(860px, 100%); display: flex; flex-direction: column; overflow: hidden;
+  font: 13px/1.45 var(--d-font); color: var(--d-text); background: var(--d-panel-solid); border: 1px solid var(--d-line); border-radius: var(--d-radius); box-shadow: var(--d-shadow); }
+header { display: flex; align-items: center; gap: 8px; padding: 10px 14px; border-bottom: 1px solid var(--d-divider); flex-wrap: wrap; }
+header h2 { margin: 0; font-size: 15px; color: var(--d-title); flex: 1; }
+header select { width: auto; max-width: 16em; }
+main { flex: 1; min-height: 0; overflow: auto; padding: 8px 14px 18px; }
+.note { color: var(--d-muted); font-size: 12px; }
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 10px; }
+.grid.small { grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); }
+.tile { display: flex; flex-direction: column; gap: 4px; padding: 6px; border: 1px solid var(--d-line); border-radius: var(--d-radius-sm); background: var(--d-field); min-width: 0; }
+.tile img { width: 100%; aspect-ratio: 1; object-fit: contain; border-radius: 6px; background: var(--d-panel-solid); }
+.tile input { font-size: 12px; padding: 3px 6px; }
+.tile .row { display: flex; gap: 4px; align-items: center; }
+.tile .row input { flex: 1; min-width: 0; }
+.tile .name { font-size: 12px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+button.mini { padding: 2px 7px; font-size: 12px; min-width: 0; }
+.badge { font-size: 11px; padding: 0 6px; border-radius: 999px; border: 1px solid var(--d-line); color: var(--d-muted); }
+.card-file { display: flex; flex-direction: column; gap: 6px; }
+.card-file ul { margin: 0; padding-left: 18px; }
+.card-file .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+`;
+  function leftOutText(reason) {
+    switch (reason) {
+      case "portrait":
+        return t("the portrait (the character's own picture)", "대표 그림 (캐릭터 자신의 그림)");
+      case "user-icon":
+        return t("the user's picture", "사용자 그림");
+      case "default":
+        return t("a default picture", "기본 그림");
+      case "remote":
+        return t("on the web (not downloaded)", "웹 주소 (내려받지 않음)");
+      case "missing":
+        return t("not in the file", "파일 안에 없음");
+      case "not-picture":
+        return t("not a picture", "그림이 아님");
+      case "app-data":
+        return t("data of the app that made the card", "카드를 만든 앱의 데이터");
+      case "not-listed":
+        return t("not listed in the card", "카드 목록에 없음");
+      case "unknown-uri":
+        return t("an address Fornello can't read", "읽을 수 없는 주소");
+      case "same-emotion":
+        return t("an emotion given twice (the first is kept)", "같은 표정이 또 있음 (첫 장만)");
+    }
+  }
+  var AssetManager = class {
+    /** `changed`: the asset list of a card was saved (the chat draws again). */
+    constructor(changed) {
+      this.changed = changed;
+    }
+    element = null;
+    root = null;
+    returnFocus = null;
+    people = [];
+    others = null;
+    characterId = null;
+    assets = [];
+    gallery = [];
+    sprites = [];
+    busy = "";
+    cardImport = null;
+    report = null;
+    /** A card file is being imported (the character can't be changed meanwhile). */
+    importing = false;
+    /** Pictures are being uploaded: the character can't be changed until they are listed. */
+    uploading = false;
+    /** The tabs of Fornello's window (main.ts sets it). */
+    tabs = null;
+    /** How assets show (the settings), at the top of the tab. */
+    settingsPart = null;
+    partOpen = false;
+    async open(characterId) {
+      if (!this.element) {
+        this.element = document.createElement("div");
+        this.element.id = "fornello-assets";
+        this.root = this.element.attachShadow({ mode: "open" });
+        this.returnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+        document.addEventListener("keydown", this.onKey, true);
+        document.body.append(this.element);
+      }
+      const chatId = currentChatId();
+      this.people = chatId ? (await chatCharacters(chatId).catch(() => [])).map((c) => ({ id: c.id, name: c.name })) : [];
+      this.render();
+      const first = characterId ?? this.characterId ?? this.people[0]?.id;
+      if (first) await this.pick(first);
+      else await this.loadOthers();
+    }
+    close() {
+      document.removeEventListener("keydown", this.onKey, true);
+      const wasOpen = !!this.element;
+      this.element?.remove();
+      this.element = null;
+      this.root = null;
+      if (wasOpen && this.returnFocus?.isConnected) this.returnFocus.focus();
+    }
+    /** Redraws when open (the language changed). */
+    refresh() {
+      if (this.element) this.render();
+    }
+    onKey = (e) => {
+      if (e.key === "Escape" && this.element) {
+        e.stopPropagation();
+        this.close();
+      }
+    };
+    async loadOthers() {
+      if (this.others) return;
+      this.others = await characterNames().catch(() => []);
+      this.render();
+    }
+    async pick(id) {
+      if (id !== this.characterId) this.report = null;
+      this.characterId = id;
+      this.assets = [];
+      this.gallery = [];
+      this.sprites = [];
+      this.busy = t("Loading…", "불러오는 중…");
+      this.render();
+      let read4 = null;
+      try {
+        read4 = await Promise.all([readAssets(id), galleryOf(id), spriteListOf(id)]);
+      } catch (e) {
+        showToast(e instanceof Error ? e.message : String(e), "warning");
+      }
+      if (this.characterId !== id) return;
+      if (read4) [this.assets, this.gallery, this.sprites] = read4;
+      else this.characterId = null;
+      this.busy = "";
+      this.render();
+    }
+    /**
+     * Saves a changed list to character `id` (the one shown when the change
+     * began); on failure the window shows what is saved, if it still shows that character.
+     */
+    async save(next2, id = this.characterId) {
+      if (!id) return;
+      const shown2 = () => this.characterId === id;
+      const before = this.assets;
+      if (shown2()) {
+        this.assets = next2;
+        this.render();
+      }
+      try {
+        await saveAssets(id, next2);
+        this.changed();
+      } catch (e) {
+        if (shown2()) {
+          this.assets = before;
+          this.render();
+        }
+        showToast(t(`Not saved: ${e instanceof Error ? e.message : e}`, `저장하지 못했어요: ${e instanceof Error ? e.message : e}`), "warning");
+      }
+    }
+    async upload(files) {
+      const id = this.characterId;
+      if (!id || !files.length) return;
+      this.uploading = true;
+      const added = [];
+      for (const [i, file] of files.entries()) {
+        this.busy = t(`Uploading ${i + 1} of ${files.length}…`, `${files.length}장 중 ${i + 1}장 올리는 중…`);
+        this.render();
+        try {
+          const pic = await uploadToGallery(id, file, file.name);
+          if (this.characterId === id) this.gallery = [...this.gallery, pic];
+          added.push({ file: pic.file, name: nameFromFile(file.name) });
+        } catch (e) {
+          showToast(`${file.name}: ${e instanceof Error ? e.message : e}`, "warning");
+        }
+      }
+      this.uploading = false;
+      this.busy = "";
+      if (!added.length) return this.render();
+      let now;
+      try {
+        now = await readAssets(id);
+      } catch (e) {
+        this.render();
+        showToast(t(`The names were not saved (the pictures are in the Gallery): ${e instanceof Error ? e.message : e}`, `이름을 저장하지 못했어요 (그림은 갤러리에 있어요): ${e instanceof Error ? e.message : e}`), "warning");
+        return;
+      }
+      await this.save(added.reduce((list, a) => listFile(list, "gallery", a.file, a.name), now), id);
+    }
+    /** Picks a card file and shows what it holds (nothing is uploaded yet). */
+    pickCard() {
+      pickFile(async (file) => {
+        let found;
+        try {
+          found = await readCardFile(file.name, new Uint8Array(await file.arrayBuffer()));
+        } catch (e) {
+          showToast(t(`Could not read that file: ${e instanceof Error ? e.message : e}`, `그 파일을 읽지 못했어요: ${e instanceof Error ? e.message : e}`), "error");
+          return;
+        }
+        if (found.form === "none" || !found.card) {
+          showToast(t("No character card found in that file.", "그 파일에서 캐릭터 카드를 찾지 못했어요."), "warning");
+          return;
+        }
+        this.cardImport = { file, found, asNew: false };
+        this.report = null;
+        this.render();
+      }, ".charx,.zip,.png,.jpg,.jpeg,image/png,image/jpeg");
+    }
+    /** Brings the card file in (card-import.ts) and shows what came in. */
+    async importCard(imp) {
+      if (!imp.asNew && !this.characterId) return;
+      this.importing = true;
+      let result;
+      try {
+        result = await importCardFile(imp.found, imp.file, imp.asNew ? null : { id: this.characterId, assets: this.assets }, (what) => {
+          this.busy = what;
+          this.render();
+        });
+      } catch (e) {
+        this.importing = false;
+        this.busy = "";
+        this.render();
+        showToast(t(`Not imported: ${e instanceof Error ? e.message : e}`, `가져오지 못했어요: ${e instanceof Error ? e.message : e}`), "warning");
+        return;
+      }
+      if (result.changed) this.changed();
+      this.importing = false;
+      this.cardImport = null;
+      if (imp.asNew) {
+        this.others = null;
+        await this.loadOthers();
+      }
+      await this.pick(result.characterId);
+      this.report = { name: imp.found.name, done: result.done, skipped: result.skipped, failed: result.failed };
+      this.render();
+      showToast(cardImportMessage(imp.found.name, result), result.failed.length ? "warning" : "success");
+    }
+    async deletePicture(pic) {
+      const id = this.characterId;
+      if (!id || !window.confirm(t("Delete this picture from the character's Gallery?", "이 그림을 캐릭터 갤러리에서 지울까요?"))) return;
+      try {
+        await deleteFromGallery(id, pic.id);
+      } catch (e) {
+        showToast(e instanceof Error ? e.message : String(e), "warning");
+        return;
+      }
+      if (this.characterId !== id) {
+        const saved = await readAssets(id).catch(() => null);
+        if (saved?.some((a) => a.place === "gallery" && a.file === pic.file)) await this.save(unlistFile(saved, "gallery", pic.file), id);
+        return;
+      }
+      this.gallery = this.gallery.filter((p2) => p2 !== pic);
+      if (this.assets.some((a) => a.place === "gallery" && a.file === pic.file)) await this.save(unlistFile(this.assets, "gallery", pic.file), id);
+      else this.render();
+    }
+    render() {
+      if (!this.root) return;
+      const scroll = this.root.querySelector("main")?.scrollTop ?? 0;
+      const style = el("style", {}, STYLE4);
+      const choices = [...this.people, ...(this.others ?? []).filter((o2) => !this.people.some((p2) => p2.id === o2.id))];
+      const select = el(
+        "select",
+        {
+          "aria-label": t("Character", "캐릭터"),
+          "data-key": "asset-character",
+          disabled: this.importing || this.uploading,
+          onfocus: () => void this.loadOthers(),
+          onchange: (e) => void this.pick(e.target.value)
+        },
+        ...this.characterId ? [] : [el("option", { value: "", selected: true }, t("Pick a character", "캐릭터 고르기"))],
+        ...choices.map((c) => el("option", { value: c.id, selected: c.id === this.characterId }, c.name || c.id))
+      );
+      const head = el(
+        "header",
+        {},
+        ...this.tabs ? tabHeader("assets", this.tabs) : [el("h2", {}, t("🖼 Character assets", "🖼 캐릭터 에셋"))],
+        el("button", { className: "ghost", "aria-label": t("Close", "닫기"), onclick: () => this.close() }, "✕")
+      );
+      const part = this.settingsPart ? el("details", { className: "part", open: this.partOpen, ontoggle: (e) => this.partOpen = e.target.open }, el("summary", {}, t("How they show", "보이는 방식")), this.settingsPart()) : null;
+      const main = el("main", {}, part, el("div", { className: "row", style: "margin-bottom:8px" }, select), ...this.characterId ? this.sections(this.characterId) : [el("div", { className: "note" }, t("Pick a character above.", "위에서 캐릭터를 고르세요."))]);
+      const win = el("div", { className: `win${this.tabs ? " tabbed" : ""}`, role: "dialog", "aria-modal": "true", "aria-label": t("Character assets", "캐릭터 에셋"), tabIndex: -1 }, head, main);
+      const back = el("div", { className: "back", onclick: (e) => e.target === back && this.close() }, win);
+      this.root.replaceChildren(style, back);
+      const newMain = this.root.querySelector("main");
+      if (newMain) newMain.scrollTop = scroll;
+    }
+    sections(id) {
+      const file = el("input", { type: "file", accept: "image/png,image/jpeg,image/gif,image/webp,image/avif", multiple: true, hidden: true });
+      file.addEventListener("change", () => void this.upload([...file.files ?? []]));
+      const listed = this.assets.filter((a) => a.place === "gallery");
+      const loose = this.gallery.filter((p2) => !listed.some((a) => a.file === p2.file));
+      const named = section(
+        t(`Named pictures (${listed.length})`, `이름 붙인 그림 (${listed.length})`),
+        t(
+          "A reply shows one with [img:name]. Several pictures may share a name (one is picked per reply). Person: who it shows, for a card with several people. Words: it shows when a reply uses one",
+          "답변에 [img:이름]이 나오면 보여요. 여러 장이 같은 이름이어도 돼요(답변마다 한 장). 인물: 카드에 여러 사람이 있을 때 누구 그림인지. 단어: 답변에 그 단어가 나오면 보여요"
+        ),
+        [
+          file,
+          el("button", { className: "mini", disabled: !!this.busy, onclick: () => file.click() }, t("+ Upload pictures", "+ 그림 올리기")),
+          el(
+            "button",
+            { className: "mini", disabled: !!this.busy, title: t("Pictures from a .charx, JPEG or PNG character card (or a .zip holding one)", ".charx·JPEG·PNG 캐릭터 카드(또는 그걸 담은 .zip)의 그림"), onclick: () => this.pickCard() },
+            t("Import from a card file", "카드 파일에서 가져오기")
+          )
+        ],
+        this.busy ? el("div", { className: "note" }, this.busy) : null,
+        listed.length ? el("div", { className: "grid" }, ...listed.map((a) => this.namedTile(id, a))) : el("div", { className: "note" }, t("No named pictures yet. Upload some (named after their files), or name one below.", "아직 이름 붙인 그림이 없어요. 올리면 파일 이름이 이름이 돼요. 아래 그림에 이름을 붙여도 돼요."))
+      );
+      const unnamed = loose.length ? section(
+        t(`Gallery pictures without a name (${loose.length})`, `이름 없는 갤러리 그림 (${loose.length})`),
+        void 0,
+        [],
+        el("div", { className: "grid small" }, ...loose.map((p2) => this.looseTile(p2)))
+      ) : null;
+      const sprites = this.sprites.length ? section(
+        t(`Sprites (${this.sprites.length})`, `스프라이트 (${this.sprites.length})`),
+        t("Found by their expression name without a list; words make them show by words too", "표정 이름으로 바로 찾아져요. 단어를 달면 단어로도 보여요"),
+        [],
+        el("div", { className: "grid small" }, ...this.sprites.map((s) => this.spriteTile(id, s)))
+      ) : null;
+      const card = this.cardImport ? this.cardSummary(this.cardImport) : this.report ? this.reportSection(this.report) : null;
+      return [card, named, unnamed, sprites].filter((s) => !!s);
+    }
+    /** What a card file holds and what stays out, before anything is uploaded. */
+    cardSummary(imp) {
+      const { found } = imp;
+      const count = (kind) => found.pictures.filter((p2) => p2.kind === kind).length;
+      const todo = picturesToImport(found.pictures, imp.asNew ? [] : this.assets);
+      const skipped = found.pictures.length - todo.length;
+      const reasons = /* @__PURE__ */ new Map();
+      for (const l of found.leftOut) reasons.set(l.reason, [...reasons.get(l.reason) ?? [], l.what]);
+      const leftOut = [...reasons].map(
+        ([reason, names]) => el("li", {}, `${leftOutText(reason)} (${names.length}): ${names.slice(0, 4).join(", ")}${names.length > 4 ? ", …" : ""}`)
+      );
+      const into = this.characterName(this.characterId);
+      const asNew = found.card ? el(
+        "label",
+        { className: "row", style: "cursor:pointer" },
+        el("input", { type: "checkbox", checked: imp.asNew, disabled: !!this.busy, onchange: (e) => (imp.asNew = e.target.checked, this.render()) }),
+        t(`As a new character (made from the card: ${found.name})`, `새 캐릭터로 (카드로 만들기: ${found.name})`)
+      ) : null;
+      return section(
+        t(`From the card file: ${found.name}`, `카드 파일에서: ${found.name}`),
+        t(
+          "Emotions become sprites (a sprite of the same expression is replaced). The rest go to the Gallery with their prompts and are named as the card names them. A picture imported before (same name, same file) is skipped",
+          "표정은 스프라이트가 돼요 (같은 표정의 스프라이트는 바뀌어요). 나머지는 프롬프트와 함께 갤러리로 가고, 카드에 적힌 이름이 붙어요. 전에 가져온 그림(같은 이름, 같은 파일)은 건너뛰어요"
+        ),
+        [el("button", { className: "mini ghost", disabled: !!this.busy, onclick: () => (this.cardImport = null, this.render()) }, t("Cancel", "취소"))],
+        el(
+          "div",
+          { className: "card-file", "data-key": "card-file" },
+          el("div", {}, t(`Found: ${count("icon")} other ${count("icon") === 1 ? "portrait" : "portraits"}, ${count("emotion")} ${count("emotion") === 1 ? "emotion" : "emotions"}, ${count("picture")} ${count("picture") === 1 ? "picture" : "pictures"}`, `찾은 것: 다른 대표 그림 ${count("icon")}장, 표정 ${count("emotion")}장, 그림 ${count("picture")}장`)),
+          skipped ? el("div", { className: "note" }, t(`Already imported, skipped: ${skipped}`, `이미 가져와서 건너뜀: ${skipped}장`)) : null,
+          found.lorebooks?.length ? el("div", {}, t(`Lorebook (linked to the character): ${found.lorebooks.map((b2) => b2.name).join(", ")}`, `로어북 (캐릭터에 연결): ${found.lorebooks.map((b2) => b2.name).join(", ")}`)) : null,
+          found.qrSets?.length ? el("div", {}, t(`QR sets (to Dispensa's Library): ${found.qrSets.map((q2) => q2.name).join(", ")}`, `QR 세트 (Dispensa 보관함으로): ${found.qrSets.map((q2) => q2.name).join(", ")}`), typeof window.__dispensa?.importQrs === "function" ? null : el("span", { className: "note" }, t(" · needs Dispensa", " · Dispensa가 있어야 해요"))) : null,
+          leftOut.length ? el("div", {}, t("Left out:", "빠지는 것:"), el("ul", {}, ...leftOut)) : null,
+          el(
+            "div",
+            { className: "row" },
+            el("span", {}, imp.asNew ? t("Into: a new character", "넣을 곳: 새 캐릭터") : t(`Into: ${into}`, `넣을 곳: ${into}`)),
+            asNew
+          ),
+          el(
+            "div",
+            { className: "row" },
+            el("button", { disabled: !!this.busy || !(todo.length || found.lorebooks?.length || found.qrSets?.length), onclick: () => void this.importCard(imp) }, found.lorebooks?.length || found.qrSets?.length ? t(`Import (${todo.length} ${todo.length === 1 ? "picture" : "pictures"} and the rest)`, `가져오기 (그림 ${todo.length}장과 나머지)`) : t(`Import ${todo.length} ${todo.length === 1 ? "picture" : "pictures"}`, `그림 ${todo.length}장 가져오기`))
+          )
+        )
+      );
+    }
+    /** What the last card import did: counts, and each picture that failed. */
+    reportSection(r) {
+      return section(
+        t(`Imported from ${r.name}`, `${r.name}에서 가져옴`),
+        void 0,
+        [el("button", { className: "mini ghost", "aria-label": t("Close", "닫기"), onclick: () => (this.report = null, this.render()) }, "✕")],
+        el(
+          "div",
+          { className: "card-file", "data-key": "card-report" },
+          el("div", {}, t(`${r.done} imported, ${r.skipped} already there, ${r.failed.length} failed`, `${r.done}장 가져옴, ${r.skipped}장 이미 있음, ${r.failed.length}장 실패`)),
+          r.failed.length ? el("ul", {}, ...r.failed.map((f) => el("li", {}, f))) : null
+        )
+      );
+    }
+    characterName(id) {
+      const c = [...this.people, ...this.others ?? []].find((p2) => p2.id === id);
+      return c?.name || id || "";
+    }
+    namedTile(id, a) {
+      const pic = this.gallery.find((p2) => p2.file === a.file);
+      const field2 = (value2, label, placeholder, onchange) => el("input", { type: "text", value: value2, placeholder, "aria-label": label, title: label, onchange: (e) => onchange(e.target.value) });
+      return el(
+        "div",
+        { className: "tile", "data-file": a.file },
+        el("img", { src: assetUrl(id, a), alt: a.name, loading: "lazy" }),
+        field2(a.name, t("Name", "이름"), t("Name", "이름"), (v) => v.trim() && void this.save(editAsset(this.assets, "gallery", a.file, { name: v }))),
+        field2(a.person ?? "", t("Person (optional)", "인물 (선택)"), t("Person (optional)", "인물 (선택)"), (v) => void this.save(editAsset(this.assets, "gallery", a.file, { person: v }))),
+        field2((a.words ?? []).join(", "), t("Words, with commas", "단어 (쉼표로)"), t("Words, with commas", "단어 (쉼표로)"), (v) => void this.save(editAsset(this.assets, "gallery", a.file, { words: parseWords(v) }))),
+        el(
+          "div",
+          { className: "row" },
+          el("button", { className: "mini ghost", title: t("Take the name off (the picture stays)", "이름 떼기 (그림은 남아요)"), onclick: () => void this.save(unlistFile(this.assets, "gallery", a.file)) }, t("Unname", "이름 떼기")),
+          pic ? el("button", { className: "mini ghost danger", title: t("Delete from the Gallery", "갤러리에서 지우기"), onclick: () => void this.deletePicture(pic) }, "🗑") : el("span", { className: "badge" }, t("missing", "파일 없음"))
+        )
+      );
+    }
+    looseTile(p2) {
+      const input2 = el("input", { type: "text", placeholder: t("Name", "이름"), "aria-label": t("Name for this picture", "이 그림의 이름"), value: "" });
+      const add = () => input2.value.trim() && void this.save(listFile(this.assets, "gallery", p2.file, input2.value));
+      input2.addEventListener("keydown", (e) => e.key === "Enter" && add());
+      return el(
+        "div",
+        { className: "tile", "data-file": p2.file },
+        el("img", { src: p2.url, alt: p2.prompt || p2.file, loading: "lazy" }),
+        el("div", { className: "row" }, input2, el("button", { className: "mini", title: t("Name it", "이름 붙이기"), onclick: add }, "＋"))
+      );
+    }
+    spriteTile(id, s) {
+      const words = this.assets.find((a) => a.place === "sprite" && a.file === s.file)?.words ?? [];
+      return el(
+        "div",
+        { className: "tile", "data-file": s.file },
+        el("img", { src: assetUrl(id, s), alt: s.name, loading: "lazy" }),
+        el("div", { className: "name", title: s.name }, s.name),
+        el("input", {
+          type: "text",
+          value: words.join(", "),
+          placeholder: t("Words, with commas", "단어 (쉼표로)"),
+          "aria-label": t(`Words for ${s.name}`, `${s.name}의 단어`),
+          onchange: (e) => void this.save(setSpriteWords(this.assets, s, parseWords(e.target.value)))
+        })
+      );
     }
   };
 
@@ -34089,16 +36294,16 @@ ${HOVER_TOOLS}
     }
     return -1;
   }
-  function topLevelSplit(text) {
+  function topLevelSplit(text2) {
     const out = [];
     let depth = 0;
     let cur = "";
-    for (let i = 0; i < text.length; i++) {
-      const c = text[i];
+    for (let i = 0; i < text2.length; i++) {
+      const c = text2[i];
       if (c === "'" || c === '"' || c === "`") {
         let j = i + 1;
-        for (; j < text.length && text[j] !== c; j++) if (text[j] === "\\") j++;
-        cur += text.slice(i, j + 1);
+        for (; j < text2.length && text2[j] !== c; j++) if (text2[j] === "\\") j++;
+        cur += text2.slice(i, j + 1);
         i = j;
         continue;
       }
@@ -34115,10 +36320,10 @@ ${HOVER_TOOLS}
     return out;
   }
   function componentProps(code, name) {
-    const at2 = propsPattern(code, name);
-    if (!at2) return [];
+    const at3 = propsPattern(code, name);
+    if (!at3) return [];
     const out = [];
-    for (const part of topLevelSplit(code.slice(at2.start + 1, at2.end))) {
+    for (const part of topLevelSplit(code.slice(at3.start + 1, at3.end))) {
       const m2 = propPart(part);
       if (m2) out.push({ name: m2.name, fallback: m2.fallback });
     }
@@ -34225,9 +36430,9 @@ ${HOVER_TOOLS}
         const after = code.slice(j).match(/^\s*(.)/)?.[1];
         const key = after === ":" && /[{,]/.test(before);
         const attr = /^\s*=\s*[{"']/.test(code.slice(j)) && /[\w"'}]/.test(before);
-        const text = /<\/?[A-Za-z][\w.:-]*(?:\s[^<>]*)?\/?>[^<>{}();=]*$/.test(out.slice(-300));
+        const text2 = /<\/?[A-Za-z][\w.:-]*(?:\s[^<>]*)?\/?>[^<>{}();=]*$/.test(out.slice(-300));
         const shorthand = brackets[brackets.length - 1] === "{" && (before === "," || before === "{" && after === ",") && (after === "," || after === "}" || after === "=");
-        if (w2 !== from || before === "." || key || attr || text) out += w2;
+        if (w2 !== from || before === "." || key || attr || text2) out += w2;
         else out += shorthand ? `${w2}: ${to}` : to;
         i = j;
       } else {
@@ -34245,26 +36450,26 @@ ${HOVER_TOOLS}
     if (!head) return code.length;
     const close = closing(src, head.index + head[0].length - 1);
     if (close < 0) return code.length;
-    const at2 = /^\s*(?:=>\s*)?/.exec(src.slice(close + 1))[0].length + close + 1;
-    if (src[at2] === "{" || src[at2] === "(") {
-      const end2 = closing(src, at2);
+    const at3 = /^\s*(?:=>\s*)?/.exec(src.slice(close + 1))[0].length + close + 1;
+    if (src[at3] === "{" || src[at3] === "(") {
+      const end2 = closing(src, at3);
       return end2 < 0 ? code.length : end2 + 1;
     }
-    const end = src.slice(at2).search(/;|\n\s*\n/);
-    return end < 0 ? code.length : at2 + end;
+    const end = src.slice(at3).search(/;|\n\s*\n/);
+    return end < 0 ? code.length : at3 + end;
   }
   function renameProp(code, name, from, to) {
     const props = componentProps(code, name);
     const renamed = rewriteProps(code, name, props.map((p2) => ({ name: p2.name === from ? to : p2.name, from: p2.name })));
-    const at2 = propsPattern(renamed, name);
-    if (!at2) return renamed;
-    const end = Math.max(at2.end + 1, componentEnd(renamed, name));
-    return renamed.slice(0, at2.end + 1) + renameIdentifier(renamed.slice(at2.end + 1, end), from, to) + renamed.slice(end);
+    const at3 = propsPattern(renamed, name);
+    if (!at3) return renamed;
+    const end = Math.max(at3.end + 1, componentEnd(renamed, name));
+    return renamed.slice(0, at3.end + 1) + renameIdentifier(renamed.slice(at3.end + 1, end), from, to) + renamed.slice(end);
   }
   function rewriteProps(code, name, entries) {
-    const at2 = propsPattern(code, name);
-    if (!at2) return code;
-    const inner = code.slice(at2.start + 1, at2.end);
+    const at3 = propsPattern(code, name);
+    if (!at3) return code;
+    const inner = code.slice(at3.start + 1, at3.end);
     const parts = topLevelSplit(inner).map((p2) => p2.trim()).filter(Boolean);
     const byName = /* @__PURE__ */ new Map();
     for (const p2 of parts) {
@@ -34282,7 +36487,7 @@ ${HOVER_TOOLS}
     const body = indent === void 0 ? list.length ? ` ${list.join(", ")} ` : "" : `
 ${list.map((p2) => indent + p2).join(",\n")}${/,\s*$/.test(inner) ? "," : ""}
 ${/\n([ \t]*)$/.exec(inner)?.[1] ?? ""}`;
-    return `${code.slice(0, at2.start)}{${body}}${code.slice(at2.end + 1)}`;
+    return `${code.slice(0, at3.start)}{${body}}${code.slice(at3.end + 1)}`;
   }
   function evaluate(expr) {
     const t2 = expr.trim();
@@ -34292,64 +36497,64 @@ ${/\n([ \t]*)$/.exec(inner)?.[1] ?? ""}`;
     }
     return parseLiteral2(t2);
   }
-  function parseLiteral2(text) {
+  function parseLiteral2(text2) {
     let i = 0;
     const fail = () => {
       throw new SyntaxError(`not a plain value at ${i}`);
     };
     const space = () => {
-      while (i < text.length && /\s/.test(text[i])) i++;
+      while (i < text2.length && /\s/.test(text2[i])) i++;
     };
     const string = () => {
-      const q2 = text[i++];
+      const q2 = text2[i++];
       let out2 = "";
-      while (i < text.length && text[i] !== q2) {
-        let c = text[i++];
-        if (q2 === "`" && c === "$" && text[i] === "{") fail();
+      while (i < text2.length && text2[i] !== q2) {
+        let c = text2[i++];
+        if (q2 === "`" && c === "$" && text2[i] === "{") fail();
         if (c === "\\") {
-          c = text[i++] ?? "";
+          c = text2[i++] ?? "";
           const esc = { n: "\n", t: "	", r: "\r", b: "\b", f: "\f", v: "\v", "0": "\0" };
-          if (c === "u" && /^[0-9a-fA-F]{4}/.test(text.slice(i))) {
-            c = String.fromCharCode(parseInt(text.slice(i, i + 4), 16));
+          if (c === "u" && /^[0-9a-fA-F]{4}/.test(text2.slice(i))) {
+            c = String.fromCharCode(parseInt(text2.slice(i, i + 4), 16));
             i += 4;
-          } else if (c === "x" && /^[0-9a-fA-F]{2}/.test(text.slice(i))) {
-            c = String.fromCharCode(parseInt(text.slice(i, i + 2), 16));
+          } else if (c === "x" && /^[0-9a-fA-F]{2}/.test(text2.slice(i))) {
+            c = String.fromCharCode(parseInt(text2.slice(i, i + 2), 16));
             i += 2;
           } else c = esc[c] ?? c;
         }
         out2 += c;
       }
-      if (text[i] !== q2) fail();
+      if (text2[i] !== q2) fail();
       i++;
       return out2;
     };
     const value2 = (depth) => {
       if (depth > 64) fail();
       space();
-      const c = text[i];
+      const c = text2[i];
       if (c === "{") {
         i++;
         const obj3 = {};
         for (; ; ) {
           space();
-          if (text[i] === "}") {
+          if (text2[i] === "}") {
             i++;
             return obj3;
           }
           let key;
-          if (text[i] === '"' || text[i] === "'") key = string();
+          if (text2[i] === '"' || text2[i] === "'") key = string();
           else {
-            const m2 = /^[A-Za-z_$][\w$]*|^\d+/.exec(text.slice(i));
+            const m2 = /^[A-Za-z_$][\w$]*|^\d+/.exec(text2.slice(i));
             if (!m2) fail();
             key = m2[0];
             i += key.length;
           }
           space();
-          if (text[i++] !== ":") fail();
+          if (text2[i++] !== ":") fail();
           Object.defineProperty(obj3, key, { value: value2(depth + 1), enumerable: true, writable: true, configurable: true });
           space();
-          if (text[i] === ",") i++;
-          else if (text[i] !== "}") fail();
+          if (text2[i] === ",") i++;
+          else if (text2[i] !== "}") fail();
         }
       }
       if (c === "[") {
@@ -34357,24 +36562,24 @@ ${/\n([ \t]*)$/.exec(inner)?.[1] ?? ""}`;
         const arr = [];
         for (; ; ) {
           space();
-          if (text[i] === "]") {
+          if (text2[i] === "]") {
             i++;
             return arr;
           }
           arr.push(value2(depth + 1));
           space();
-          if (text[i] === ",") i++;
-          else if (text[i] !== "]") fail();
+          if (text2[i] === ",") i++;
+          else if (text2[i] !== "]") fail();
         }
       }
       if (c === '"' || c === "'" || c === "`") return string();
-      const num = /^[+-]?(?:0[xX][0-9a-fA-F]+|(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?|Infinity)/.exec(text.slice(i));
-      if (num) {
-        i += num[0].length;
-        return Number(num[0]);
+      const num2 = /^[+-]?(?:0[xX][0-9a-fA-F]+|(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?|Infinity)/.exec(text2.slice(i));
+      if (num2) {
+        i += num2[0].length;
+        return Number(num2[0]);
       }
       for (const [word, v] of [["true", true], ["false", false], ["null", null], ["undefined", void 0]]) {
-        if (text.startsWith(word, i) && !/[\w$]/.test(text[i + word.length] ?? "")) {
+        if (text2.startsWith(word, i) && !/[\w$]/.test(text2[i + word.length] ?? "")) {
           i += word.length;
           return v;
         }
@@ -34383,86 +36588,86 @@ ${/\n([ \t]*)$/.exec(inner)?.[1] ?? ""}`;
     };
     const out = value2(0);
     space();
-    if (i < text.length) fail();
+    if (i < text2.length) fail();
     return out;
   }
-  function readString2(text, i) {
-    const q2 = text[i];
+  function readString2(text2, i) {
+    const q2 = text2[i];
     let out = "";
-    for (let j = i + 1; j < text.length; j++) {
-      const c = text[j];
-      if (c === "\\" && j + 1 < text.length) {
-        const e = text[++j];
+    for (let j = i + 1; j < text2.length; j++) {
+      const c = text2[j];
+      if (c === "\\" && j + 1 < text2.length) {
+        const e = text2[++j];
         out += e === "n" ? "\n" : e === "t" ? "	" : e;
         continue;
       }
       if (c === q2) return [out, j + 1];
       out += c;
     }
-    return [out, text.length];
+    return [out, text2.length];
   }
-  function findTags(text, names) {
+  function findTags2(text2, names) {
     const wanted = new Set(names);
     if (!wanted.size) return [];
     const out = [];
     const re2 = /<([A-Z][\w$]*)(?=[\s/>])/g;
     let m2;
-    while (m2 = re2.exec(text)) {
+    while (m2 = re2.exec(text2)) {
       const name = m2[1];
       if (!wanted.has(name)) continue;
       const props = {};
       let body;
       let i = m2.index + m2[0].length;
       let ok = false;
-      while (i < text.length) {
-        while (i < text.length && /\s/.test(text[i])) i++;
-        if (text.startsWith("/>", i)) {
+      while (i < text2.length) {
+        while (i < text2.length && /\s/.test(text2[i])) i++;
+        if (text2.startsWith("/>", i)) {
           i += 2;
           ok = true;
           break;
         }
-        if (text[i] === ">") {
+        if (text2[i] === ">") {
           i++;
-          const end = text.indexOf(`</${name}>`, i);
+          const end = text2.indexOf(`</${name}>`, i);
           if (end >= 0) {
-            body = text.slice(i, end);
+            body = text2.slice(i, end);
             i = end + name.length + 3;
           }
           ok = true;
           break;
         }
-        const attr = /^[A-Za-z_$][\w$:-]*/.exec(text.slice(i));
+        const attr = /^[A-Za-z_$][\w$:-]*/.exec(text2.slice(i));
         if (!attr) break;
         i += attr[0].length;
-        while (i < text.length && /\s/.test(text[i])) i++;
-        if (text[i] !== "=") {
+        while (i < text2.length && /\s/.test(text2[i])) i++;
+        if (text2[i] !== "=") {
           props[attr[0]] = true;
           continue;
         }
         i++;
-        while (i < text.length && /\s/.test(text[i])) i++;
-        const c = text[i];
+        while (i < text2.length && /\s/.test(text2[i])) i++;
+        const c = text2[i];
         if (c === '"' || c === "'") {
-          const [value2, next2] = readString2(text, i);
+          const [value2, next2] = readString2(text2, i);
           props[attr[0]] = value2;
           i = next2;
         } else if (c === "{") {
-          const end = closing(text, i);
+          const end = closing(text2, i);
           if (end < 0) break;
           try {
-            props[attr[0]] = evaluate(text.slice(i + 1, end));
+            props[attr[0]] = evaluate(text2.slice(i + 1, end));
           } catch {
-            props[attr[0]] = text.slice(i + 1, end).trim();
+            props[attr[0]] = text2.slice(i + 1, end).trim();
           }
           i = end + 1;
         } else {
-          const bare = /^[^\s/>]+/.exec(text.slice(i))?.[0] ?? "";
+          const bare = /^[^\s/>]+/.exec(text2.slice(i))?.[0] ?? "";
           props[attr[0]] = bare;
           i += bare.length;
         }
       }
       if (!ok) continue;
-      out.push({ name, props, ...body !== void 0 ? { body } : {}, start: m2.index, end: i, raw: text.slice(m2.index, i) });
+      out.push({ name, props, ...body !== void 0 ? { body } : {}, start: m2.index, end: i, raw: text2.slice(m2.index, i) });
       re2.lastIndex = i;
     }
     return out;
@@ -34474,10 +36679,10 @@ ${/\n([ \t]*)$/.exec(inner)?.[1] ?? ""}`;
     const root2 = [];
     const stack = [];
     let into = root2;
-    let at2 = 0;
+    let at3 = 0;
     for (const m2 of template.matchAll(TAG)) {
-      if (m2.index > at2) into.push({ kind: "text", text: template.slice(at2, m2.index) });
-      at2 = m2.index + m2[0].length;
+      if (m2.index > at3) into.push({ kind: "text", text: template.slice(at3, m2.index) });
+      at3 = m2.index + m2[0].length;
       const [, sign, path] = m2;
       if (!path) continue;
       if (sign === "#" || sign === "^") {
@@ -34492,11 +36697,11 @@ ${/\n([ \t]*)$/.exec(inner)?.[1] ?? ""}`;
         stack.length = i;
       } else into.push({ kind: "value", path });
     }
-    if (at2 < template.length) into.push({ kind: "text", text: template.slice(at2) });
+    if (at3 < template.length) into.push({ kind: "text", text: template.slice(at3) });
     return root2;
   }
   var ENTITIES = { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" };
-  var escapeHtml = (text) => text.replace(/[&<>"']/g, (c) => ENTITIES[c]);
+  var escapeHtml = (text2) => text2.replace(/[&<>"']/g, (c) => ENTITIES[c]);
   function asText2(v) {
     if (v === void 0 || v === null || v === false) return "";
     if (typeof v === "string") return v;
@@ -34620,10 +36825,10 @@ ${/\n([ \t]*)$/.exec(inner)?.[1] ?? ""}`;
     if (typeof v === "number" || typeof v === "boolean") return String(v);
     return JSON.stringify(v);
   }
-  function literalValue(text) {
-    if (!text.trim()) return void 0;
+  function literalValue(text2) {
+    if (!text2.trim()) return void 0;
     try {
-      return parseLiteral2(text);
+      return parseLiteral2(text2);
     } catch {
       return void 0;
     }
@@ -34736,7 +36941,7 @@ ${/\n([ \t]*)$/.exec(inner)?.[1] ?? ""}`;
       code,
       enabled: r.enabled !== false,
       everyChat: r.everyChat !== false,
-      source: r.source === "tracker" ? "tracker" : r.source === "body" ? "body" : "tag",
+      source: r.source === "tracker" || r.source === "body" || r.source === "story" ? r.source : "tag",
       body: normalizeBody(r.body),
       map,
       fields: ownFields(kind, r.source === "body", normalizeBody(r.body)) ? normalizeFields(r.fields) : fieldsFromCode(code, name, normalizeFields(r.fields)),
@@ -34758,6 +36963,57 @@ ${/\n([ \t]*)$/.exec(inner)?.[1] ?? ""}`;
     };
   }
 
+  // src/scripts/places.ts
+  function placeOf(s, key) {
+    const p2 = s.scriptPlaces[key];
+    return { dock: p2?.dock ?? (s.legacyDock && !key.startsWith("global:")), status: p2?.status ?? false };
+  }
+  function withPlace(s, key, change) {
+    return { ...s.scriptPlaces, [key]: { ...placeOf(s, key), ...change } };
+  }
+  function normalizePlaces(raw) {
+    const out = {};
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) return out;
+    for (const [k2, v] of Object.entries(raw)) {
+      if (!v || typeof v !== "object") continue;
+      const o2 = v;
+      out[k2] = { ...typeof o2.dock === "boolean" ? { dock: o2.dock } : {}, ...typeof o2.status === "boolean" ? { status: o2.status } : {} };
+    }
+    return out;
+  }
+
+  // src/state/settings.ts
+  var STORY_WRITERS = ["ai", "fill", "helper"];
+  var DEFAULT_STORY = { on: false, depth: 1, code: {}, writer: "ai", fillWith: "", tracker: false, others: true, vars: false };
+  var STORY_DEPTH = { min: 0, max: 4 };
+  function normalizeStory(raw) {
+    const r = raw && typeof raw === "object" ? raw : {};
+    const depth = Number(r.depth);
+    return {
+      on: r.on === true,
+      depth: Number.isFinite(depth) && r.depth !== null && r.depth !== "" ? Math.max(STORY_DEPTH.min, Math.min(STORY_DEPTH.max, Math.round(depth))) : DEFAULT_STORY.depth,
+      code: Object.fromEntries(Object.entries(r.code && typeof r.code === "object" && !Array.isArray(r.code) ? r.code : {}).filter((e) => typeof e[1] === "boolean")),
+      // `fill: true` is how an earlier Fornello kept "the AI, with a helper"
+      writer: STORY_WRITERS.includes(r.writer) ? r.writer : r.fill === true ? "fill" : "ai",
+      fillWith: typeof r.fillWith === "string" ? r.fillWith.trim() : "",
+      tracker: r.tracker === true,
+      others: r.others !== false,
+      vars: r.vars === true
+    };
+  }
+
+  // src/ejs/settings.ts
+  var TEMPLATE_WAIT = { min: 5, max: 60 };
+  var DEFAULT_TEMPLATES = { code: {}, wait: TEMPLATE_WAIT.min };
+  function normalizeTemplates(raw) {
+    const r = raw && typeof raw === "object" ? raw : {};
+    const wait = Number(r.wait);
+    return {
+      code: Object.fromEntries(Object.entries(r.code && typeof r.code === "object" && !Array.isArray(r.code) ? r.code : {}).filter((e) => typeof e[1] === "boolean")),
+      wait: Number.isFinite(wait) && r.wait !== null && r.wait !== "" ? Math.max(TEMPLATE_WAIT.min, Math.min(TEMPLATE_WAIT.max, Math.round(wait))) : TEMPLATE_WAIT.min
+    };
+  }
+
   // src/settings.ts
   var RUN_MODES = {
     get always() {
@@ -34771,6 +37027,12 @@ ${/\n([ \t]*)$/.exec(inner)?.[1] ?? ""}`;
     }
   };
   var AUTO_RUN_MAX = 20;
+  function placesOf(stored) {
+    if (!stored || stored.scriptPlaces !== void 0) return { scriptPlaces: normalizePlaces(stored?.scriptPlaces), legacyDock: stored?.legacyDock === true };
+    const scriptPlaces = {};
+    for (const { script } of libraryScripts(normalizeLibrary(stored.scripts))) scriptPlaces[`global:${script.id}`] = { dock: true };
+    return { scriptPlaces, legacyDock: true };
+  }
   function normalizeSwitches(raw) {
     const out = {};
     if (raw && typeof raw === "object" && !Array.isArray(raw)) {
@@ -34785,7 +37047,7 @@ ${/\n([ \t]*)$/.exec(inner)?.[1] ?? ""}`;
     }
     return out;
   }
-  var DEFAULTS = { mode: "always", maxHeight: 1600, components: [], componentSets: [], display: DEFAULT_DISPLAY, autoRun: 3, trustedCards: {}, scripts: [], trustedScripts: {}, scriptSwitch: {} };
+  var DEFAULTS = { mode: "always", maxHeight: 1600, components: [], componentSets: [], display: DEFAULT_DISPLAY, autoRun: 3, trustedCards: {}, scripts: [], trustedScripts: {}, scriptSwitch: {}, scriptPlaces: {}, legacyDock: false, marinaraImport: true, assets: DEFAULT_ASSET_DISPLAY, story: DEFAULT_STORY, templates: DEFAULT_TEMPLATES };
   var Settings = class {
     value = { ...DEFAULTS };
     /** Read from storage: until then nothing is written over what is there. */
@@ -34807,6 +37069,11 @@ ${/\n([ \t]*)$/.exec(inner)?.[1] ?? ""}`;
         scripts: normalizeLibrary(stored?.scripts),
         trustedScripts: normalizeTrusted(stored?.trustedScripts),
         scriptSwitch: normalizeSwitches(stored?.scriptSwitch),
+        ...placesOf(stored),
+        marinaraImport: stored?.marinaraImport !== false,
+        assets: normalizeAssetDisplay(stored?.assets),
+        story: normalizeStory(stored?.story),
+        templates: normalizeTemplates(stored?.templates),
         autoRun: Number.isFinite(Number(stored?.autoRun)) && stored?.autoRun !== void 0 ? Math.max(0, Math.min(AUTO_RUN_MAX, Math.round(Number(stored.autoRun)))) : DEFAULTS.autoRun
       };
       this.loaded = true;
@@ -34902,134 +37169,6 @@ ${d2.code}`).join("\n\n")), defs };
 .fc-bar > i { display: block; height: 100%; width: var(--value, 50%); background: var(--fc-accent); border-radius: inherit; }
 `;
 
-  // src/scripts/files.ts
-  function exportJson(items2, withData = true) {
-    const trees = toScriptTrees(items2).map((tree) => withData ? tree : dropData(tree));
-    return JSON.stringify(trees.length === 1 ? trees[0] : trees, null, 2);
-  }
-  var dropData = (tree) => tree.type === "folder" ? { ...tree, scripts: tree.scripts.map(dropData) } : { ...tree, data: {} };
-  var hasData = (items2) => items2.some((i) => isFolder(i) ? i.scripts.some((g) => Object.keys(g.data).length) : Object.keys(i.data).length);
-  async function unzip(bytes2) {
-    const view = new DataView(bytes2.buffer, bytes2.byteOffset, bytes2.byteLength);
-    let end = -1;
-    for (let i = bytes2.length - 22; i >= Math.max(0, bytes2.length - 65557); i--) {
-      if (view.getUint32(i, true) === 101010256) {
-        end = i;
-        break;
-      }
-    }
-    if (end < 0) return [];
-    const count = view.getUint16(end + 10, true);
-    let at2 = view.getUint32(end + 16, true);
-    const out = [];
-    for (let n = 0; n < count && view.getUint32(at2, true) === 33639248; n++) {
-      const method = view.getUint16(at2 + 10, true);
-      const size = view.getUint32(at2 + 20, true);
-      const nameLength = view.getUint16(at2 + 28, true);
-      const skip = view.getUint16(at2 + 30, true) + view.getUint16(at2 + 32, true);
-      const local = view.getUint32(at2 + 42, true);
-      const path = new TextDecoder().decode(bytes2.subarray(at2 + 46, at2 + 46 + nameLength));
-      at2 += 46 + nameLength + skip;
-      if (path.endsWith("/")) continue;
-      const start2 = local + 30 + view.getUint16(local + 26, true) + view.getUint16(local + 28, true);
-      const raw = bytes2.subarray(start2, start2 + size);
-      if (method === 0) out.push({ path, data: raw });
-      else if (method === 8) out.push({ path, data: new Uint8Array(await new Response(new Blob([raw.slice()]).stream().pipeThrough(new DecompressionStream("deflate-raw"))).arrayBuffer()) });
-    }
-    return out;
-  }
-  async function scriptsFromZip(bytes2) {
-    const out = [];
-    const folders = /* @__PURE__ */ new Map();
-    for (const file of await unzip(bytes2)) {
-      if (!/\.json$/i.test(file.path)) continue;
-      let items2;
-      try {
-        items2 = normalizeLibrary([JSON.parse(new TextDecoder().decode(file.data))].flat());
-      } catch {
-        continue;
-      }
-      const dir = file.path.includes("/") ? file.path.slice(0, file.path.lastIndexOf("/")).split("/").pop() : "";
-      if (!dir) {
-        out.push(...items2);
-        continue;
-      }
-      let folder = folders.get(dir);
-      if (!folder) {
-        folder = { type: "folder", id: newScriptId(), name: dir, enabled: true, icon: "", color: "", scripts: [] };
-        folders.set(dir, folder);
-        out.push(folder);
-      }
-      for (const item2 of items2) {
-        if (isFolder(item2)) out.push(item2);
-        else folder.scripts.push(item2);
-      }
-    }
-    return out;
-  }
-  var fileName = (name, ext = "json") => `${([...name].map((c) => c.charCodeAt(0) < 32 || '\\/:*?"<>|'.includes(c) ? " " : c).join("").replace(/\s+/g, " ").trim() || "scripts").slice(0, 80)}.${ext}`;
-  function pngCardJson(bytes2) {
-    const sig = [137, 80, 78, 71, 13, 10, 26, 10];
-    if (bytes2.length < 8 || sig.some((b2, i) => bytes2[i] !== b2)) return null;
-    const view = new DataView(bytes2.buffer, bytes2.byteOffset, bytes2.byteLength);
-    const latin1 = new TextDecoder("latin1");
-    const found = {};
-    for (let at2 = 8; at2 + 8 <= bytes2.length; ) {
-      const length = view.getUint32(at2);
-      const type = latin1.decode(bytes2.subarray(at2 + 4, at2 + 8));
-      const data = bytes2.subarray(at2 + 8, at2 + 8 + length);
-      if (type === "tEXt") {
-        const zero = data.indexOf(0);
-        if (zero > 0) found[latin1.decode(data.subarray(0, zero))] = latin1.decode(data.subarray(zero + 1));
-      }
-      if (type === "IEND") break;
-      at2 += 12 + length;
-    }
-    const b64 = found.ccv3 ?? found.chara;
-    if (!b64) return null;
-    try {
-      const raw = atob(b64);
-      return new TextDecoder().decode(Uint8Array.from(raw, (c) => c.charCodeAt(0)));
-    } catch {
-      return null;
-    }
-  }
-  async function scriptsFromFile(name, bytes2) {
-    const base = name.replace(/\.[^.]+$/, "");
-    let items2 = [];
-    let from = base;
-    const fromJson = (json2) => {
-      const o2 = json2 && typeof json2 === "object" ? json2 : null;
-      const data = o2?.data && typeof o2.data === "object" ? o2.data : o2?.extensions ? o2 : null;
-      if (data && (o2?.spec || data.extensions)) {
-        from = typeof data.name === "string" && data.name ? data.name : base;
-        return cardTree(data);
-      }
-      return normalizeLibrary(Array.isArray(json2) ? json2 : [json2]);
-    };
-    if (/\.zip$/i.test(name)) {
-      items2 = await scriptsFromZip(bytes2);
-    } else if (/\.png$/i.test(name)) {
-      const json2 = pngCardJson(bytes2);
-      try {
-        items2 = json2 ? fromJson(JSON.parse(json2)) : [];
-      } catch {
-        items2 = [];
-      }
-    } else {
-      const text = new TextDecoder().decode(bytes2);
-      if (/\.json$/i.test(name)) {
-        try {
-          items2 = fromJson(JSON.parse(text));
-        } catch {
-          items2 = [];
-        }
-      } else if (text.trim()) items2 = normalizeLibrary([{ name: base, code: text }]);
-    }
-    const fresh = items2.map((i) => isFolder(i) ? { ...i, id: newScriptId(), scripts: i.scripts.map((g) => ({ ...g, id: newScriptId() })) } : { ...i, id: newScriptId() });
-    return { items: fresh, from };
-  }
-
   // src/components/files.ts
   var FILE_TYPE = "fornello.components";
   function exportComponents(defs, name = "") {
@@ -35083,14 +37222,14 @@ ${d2.code}`).join("\n\n")), defs };
         return { items: [], name: base };
       }
     }
-    const text = new TextDecoder().decode(bytes2);
+    const text2 = new TextDecoder().decode(bytes2);
     if (/\.html?$/i.test(fileName2) || /\.(jsx|tsx|js)$/i.test(fileName2)) {
-      const one = fromCode(fileName2, text, /\.html?$/i.test(fileName2));
+      const one = fromCode(fileName2, text2, /\.html?$/i.test(fileName2));
       return { items: one ? [one] : [], name: base };
     }
     let json2;
     try {
-      json2 = JSON.parse(text);
+      json2 = JSON.parse(text2);
     } catch {
       return { items: [], name: base };
     }
@@ -35110,261 +37249,16 @@ ${d2.code}`).join("\n\n")), defs };
     const next2 = [...list];
     const ids = [];
     for (const d2 of found) {
-      const at2 = next2.findIndex((c) => c.name === d2.name);
-      if (at2 >= 0) {
-        next2[at2] = { ...d2, id: next2[at2].id };
-        if (!ids.includes(next2[at2].id)) ids.push(next2[at2].id);
+      const at3 = next2.findIndex((c) => c.name === d2.name);
+      if (at3 >= 0) {
+        next2[at3] = { ...d2, id: next2[at3].id };
+        if (!ids.includes(next2[at3].id)) ids.push(next2[at3].id);
       } else {
         next2.push(d2);
         ids.push(d2.id);
       }
     }
     return { list: next2, ids };
-  }
-
-  // src/shared/form.ts
-  var FORM_CSS = `
-.sec { display: flex; flex-direction: column; }
-.sec + .sec { margin-top: 14px; }
-.sec-h { display: flex; align-items: center; gap: 6px; min-height: 24px; margin: 0 0 2px; }
-.sec-h h3 { margin: 0; font-size: 12px; font-weight: 700; letter-spacing: .02em; color: var(--d-muted); }
-.sec-h .spacer { flex: 1; }
-.set { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 12px; min-height: 42px; padding: 7px 0; border-top: 1px solid var(--d-divider); }
-.sec-h + .set, .set:first-child { border-top: 0; }
-.set > .lab { flex: 1 1 120px; min-width: 0; display: flex; align-items: center; gap: 6px; color: var(--d-text); font-size: 13px; }
-.set > .ctl { margin-left: auto; display: flex; align-items: center; justify-content: flex-end; gap: 6px; max-width: 100%; min-width: 0; }
-.set > .ctl > select, .set > .ctl > input:not([type=checkbox]):not([type=radio]) { width: auto; min-width: 130px; max-width: 100%; }
-.set.stack > .ctl { flex: 1 1 100%; margin-left: 0; justify-content: flex-start; }
-.set.stack > .ctl > * { flex: 1; }
-.switch { position: relative; display: inline-flex; width: 36px; height: 20px; flex-shrink: 0; }
-.switch input { appearance: none; -webkit-appearance: none; margin: 0; width: 100%; height: 100%; border-radius: 999px; cursor: pointer;
-  background: var(--d-field); border: 1px solid var(--d-field-border); transition: background-color .18s ease, border-color .18s ease; }
-.switch input:checked { background: var(--d-accent); border-color: var(--d-accent); }
-.switch input:focus-visible { outline: none; box-shadow: 0 0 0 2px var(--d-ring); }
-.switch input:disabled { opacity: .45; cursor: not-allowed; }
-.switch .knob { position: absolute; top: 4px; left: 4px; width: 12px; height: 12px; border-radius: 50%; pointer-events: none;
-  background: var(--d-muted); transition: transform .18s ease, background-color .18s ease; }
-.switch input:checked + .knob { transform: translateX(16px); background: var(--d-accent-text); }
-/* fixed size whatever the surrounding button rules say */
-button.help { position: relative; flex-shrink: 0; width: 16px !important; height: 16px !important; min-width: 16px !important; padding: 0 !important; border-radius: 50% !important; display: inline-grid; place-items: center;
-  font: 700 10px/1 var(--d-font); color: var(--d-muted); background: transparent; border: 1px solid var(--d-line); cursor: help; }
-button.help::after { content: ""; position: absolute; inset: -8px; }
-button.help:hover, button.help[aria-expanded="true"] { color: var(--d-hl-text); border-color: var(--d-btn-border-hover); background: var(--d-hl-bg); transform: none; }
-.tip { position: fixed; z-index: 2147483000; max-width: min(300px, calc(100vw - 24px)); padding: 9px 12px; white-space: pre-line;
-  font: 400 12.5px/1.55 var(--d-font); color: var(--d-text); background: var(--d-panel-solid); border: 1px solid var(--d-line);
-  border-radius: var(--d-radius-sm); box-shadow: var(--d-shadow); animation: d-tip-in .12s ease-out; }
-@keyframes d-tip-in { from { opacity: 0; transform: translateY(-3px); } }
-.seg2 { position: relative; display: inline-flex; align-items: stretch; padding: 3px; border-radius: 999px; background: var(--d-field); border: 1px solid var(--d-field-border); max-width: 100%; }
-.seg2 > button { position: relative; z-index: 1; flex: 1 1 auto; width: auto !important; min-width: 0; justify-content: center; border: 0 !important; background: transparent !important; box-shadow: none !important; transform: none !important;
-  color: var(--d-muted); font-weight: 600; padding: 5px 14px; border-radius: 999px; transition: color .2s ease; }
-.seg2 > button:hover { color: var(--d-text); }
-.seg2 > button[aria-pressed="true"] { color: var(--d-btn-text-active); }
-.seg2 > button:focus-visible { outline: none; box-shadow: 0 0 0 2px var(--d-ring) !important; }
-.seg2 > .pill { position: absolute; z-index: 0; top: 3px; bottom: 3px; left: 0; width: 0; border-radius: 999px; pointer-events: none;
-  background: var(--d-btn-bg-active); border: 1px solid var(--d-btn-border-active); box-shadow: 0 1px 4px rgb(0 0 0 / .18);
-  transition: transform .26s cubic-bezier(.3, .7, .2, 1), width .26s cubic-bezier(.3, .7, .2, 1); }
-.d-enter { animation: d-pop-in .18s ease-out; }
-@keyframes d-pop-in { from { opacity: 0; transform: translateY(8px) scale(.985); } }
-.d-fade { animation: d-fade-in .18s ease-out; }
-@keyframes d-fade-in { from { opacity: 0; } }
-@media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
-`;
-  function h2(tag, cls, ...kids) {
-    const node = document.createElement(tag);
-    if (cls) node.className = cls;
-    for (const k2 of kids) if (k2 !== null && k2 !== void 0 && k2 !== false) node.append(k2);
-    return node;
-  }
-  var open = null;
-  var hoverTimer = null;
-  var tipCount = 0;
-  function closeTip() {
-    if (!open) return;
-    open.tip.remove();
-    open.btn.setAttribute("aria-expanded", "false");
-    open = null;
-    document.removeEventListener("pointerdown", onOutside, true);
-    window.removeEventListener("keydown", onKey, true);
-    window.removeEventListener("scroll", closeTip, true);
-    window.removeEventListener("resize", closeTip);
-  }
-  function onOutside(e) {
-    if (!open) return;
-    const path = e.composedPath();
-    if (!path.includes(open.btn) && !path.includes(open.tip)) closeTip();
-  }
-  function onKey(e) {
-    if (e.key !== "Escape" || !open) return;
-    e.preventDefault();
-    e.stopPropagation();
-    open.btn.focus();
-    closeTip();
-  }
-  function showTip(btn, text, pinned) {
-    if (open?.btn === btn) {
-      open.pinned ||= pinned;
-      return;
-    }
-    closeTip();
-    const tip = h2("div", "tip", text);
-    tip.id = `d-tip-${++tipCount}`;
-    tip.setAttribute("role", "tooltip");
-    const root2 = btn.getRootNode();
-    (root2 instanceof ShadowRoot ? root2 : document.body).append(tip);
-    const r = btn.getBoundingClientRect();
-    const w2 = tip.offsetWidth;
-    const ht2 = tip.offsetHeight;
-    const left = Math.min(Math.max(8, r.left + r.width / 2 - w2 / 2), window.innerWidth - w2 - 8);
-    const below = r.bottom + 8;
-    tip.style.left = `${left}px`;
-    tip.style.top = `${below + ht2 > window.innerHeight - 8 ? Math.max(8, r.top - ht2 - 8) : below}px`;
-    btn.setAttribute("aria-expanded", "true");
-    btn.setAttribute("aria-describedby", tip.id);
-    open = { btn, tip, pinned };
-    document.addEventListener("pointerdown", onOutside, true);
-    window.addEventListener("keydown", onKey, true);
-    window.addEventListener("scroll", closeTip, true);
-    window.addEventListener("resize", closeTip);
-  }
-  function helpTip(text, about = "") {
-    const btn = h2("button", "help", "?");
-    btn.type = "button";
-    btn.setAttribute("aria-label", about ? t(`Help: ${about}`, `도움말: ${about}`) : t("Help", "도움말"));
-    btn.setAttribute("aria-expanded", "false");
-    btn.addEventListener("click", (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      if (open?.btn === btn && open.pinned) closeTip();
-      else showTip(btn, text, true);
-    });
-    btn.addEventListener("pointerenter", (e) => {
-      if (e.pointerType !== "mouse") return;
-      if (hoverTimer) clearTimeout(hoverTimer);
-      hoverTimer = setTimeout(() => showTip(btn, text, false), 280);
-    });
-    btn.addEventListener("pointerleave", () => {
-      if (hoverTimer) clearTimeout(hoverTimer);
-      if (open?.btn === btn && !open.pinned) closeTip();
-    });
-    return btn;
-  }
-  function toggle(checked, onChange, label, key) {
-    const input2 = document.createElement("input");
-    input2.type = "checkbox";
-    input2.checked = checked;
-    input2.setAttribute("role", "switch");
-    input2.setAttribute("aria-label", label);
-    if (key) input2.dataset.key = key;
-    const calm = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
-    input2.addEventListener("change", () => {
-      const on = input2.checked;
-      if (calm) onChange(on);
-      else setTimeout(() => onChange(on), 170);
-    });
-    return h2("label", "switch", input2, h2("span", "knob"));
-  }
-  function setting(label, control, help, opts = {}) {
-    const name = typeof label === "string" ? label : "";
-    return h2(
-      "div",
-      `set${opts.stack ? " stack" : ""}`,
-      h2("div", "lab", typeof label === "string" ? h2("span", "", label) : label, help ? helpTip(help, name) : null),
-      h2("div", "ctl", ...Array.isArray(control) ? control : [control])
-    );
-  }
-  function section(title, help, extra, ...kids) {
-    return h2("section", "sec", h2("div", "sec-h", h2("h3", "", title), help ? helpTip(help, title) : null, h2("span", "spacer"), ...extra), ...kids);
-  }
-  var livePill = /* @__PURE__ */ new Map();
-  function segmented(key, options, active, onChange, label) {
-    const bar = h2("div", "seg2");
-    bar.setAttribute("role", "group");
-    bar.setAttribute("aria-label", label);
-    const pill = h2("span", "pill");
-    bar.append(pill);
-    const buttons = options.map((o2) => {
-      const b2 = h2("button", "", o2.label);
-      b2.type = "button";
-      b2.setAttribute("aria-pressed", String(o2.value === active));
-      if (o2.title) {
-        b2.title = o2.title;
-        b2.setAttribute("aria-label", o2.title);
-      }
-      b2.addEventListener("click", () => {
-        if (o2.value !== active) onChange(o2.value);
-      });
-      bar.append(b2);
-      return b2;
-    });
-    const place = (value2, animate) => {
-      const b2 = buttons[options.findIndex((o2) => o2.value === value2)];
-      if (!b2 || !b2.offsetWidth) return false;
-      pill.style.transition = animate ? "" : "none";
-      pill.style.width = `${b2.offsetWidth}px`;
-      pill.style.transform = `translateX(${b2.offsetLeft}px)`;
-      return true;
-    };
-    const old = livePill.get(key);
-    let startAt = null;
-    if (old?.isConnected && old.offsetWidth) startAt = { x: new DOMMatrixReadOnly(getComputedStyle(old).transform).m41, w: old.offsetWidth };
-    livePill.set(key, pill);
-    let tries = 0;
-    const start2 = () => {
-      if (!bar.isConnected || !place(active, false)) {
-        if (++tries < 30) requestAnimationFrame(start2);
-        return;
-      }
-      if (startAt) {
-        pill.style.width = `${startAt.w}px`;
-        pill.style.transform = `translateX(${startAt.x}px)`;
-        void pill.offsetWidth;
-        place(active, true);
-      }
-      watch();
-    };
-    const watch = () => {
-      setTimeout(() => new ResizeObserver(() => place(active, false)).observe(bar), 320);
-    };
-    requestAnimationFrame(start2);
-    return bar;
-  }
-
-  // src/ui/dom.ts
-  var BACKDROP_CSS = ".back { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; padding: 12px; background: rgb(0 0 0 / .45); }";
-  function el(tag, attrs = {}, ...children) {
-    const node = document.createElement(tag);
-    for (const [k2, v] of Object.entries(attrs)) {
-      if (v === void 0 || v === null || v === false) continue;
-      if (k2.startsWith("on") && typeof v === "function") node.addEventListener(k2.slice(2), v);
-      else if (k2 === "style" && typeof v === "string") node.setAttribute("style", v);
-      else if (k2 in node && k2 !== "list") node[k2] = v;
-      else node.setAttribute(k2, v === true ? "" : String(v));
-    }
-    for (const c of children) if (c !== null && c !== void 0 && c !== false) node.append(c);
-    return node;
-  }
-  var picking = null;
-  function pickFile(onFile, accept) {
-    picking?.remove();
-    const input2 = document.createElement("input");
-    input2.type = "file";
-    const phone = window.matchMedia?.("(pointer: coarse)").matches ?? false;
-    const picturesOnly = accept.split(",").every((a) => a.trim().startsWith("image/"));
-    if (!phone || picturesOnly) input2.accept = accept;
-    input2.style.display = "none";
-    const done = () => {
-      input2.remove();
-      if (picking === input2) picking = null;
-    };
-    input2.addEventListener("change", () => {
-      const file = input2.files?.[0];
-      done();
-      if (file) onFile(file);
-    });
-    input2.addEventListener("cancel", done);
-    document.body.append(input2);
-    picking = input2;
-    input2.click();
   }
 
   // src/components/rules.ts
@@ -35381,8 +37275,8 @@ ${fields.map((f) => `- ${f.name} (${KIND[f.type]})${f.instruction.trim() ? `: ${
   }
   function bodyLine(format, fields) {
     const parts = fields.map((f) => f.name).join(format.sep === ":" ? ": " : "|");
-    const split2 = `Separate the parts with "${format.sep}"; only the last part may contain "${format.sep}" itself.`;
-    return format.lines ? `Inside the tag, write one line per item: ${parts || "the text"}. ${split2}` : `Inside the tag, write the values in this order: ${parts || "the text"}. ${split2}`;
+    const split3 = `Separate the parts with "${format.sep}"; only the last part may contain "${format.sep}" itself.`;
+    return format.lines ? `Inside the tag, write one line per item: ${parts || "the text"}. ${split3}` : `Inside the tag, write the values in this order: ${parts || "the text"}. ${split3}`;
   }
   function componentRule(name, use, example, when = "", fields = [], body) {
     if (body) {
@@ -35413,8 +37307,8 @@ ${example}${valueLines(fields)}`;
   async function ruleToChatBook(chatId, name, rule) {
     const book = await chatLoreBook(chatId);
     const entryName = `Fornello component rule: ${name}`;
-    const same = (await loreEntries(book.id)).find((e) => e.name === entryName);
-    if (same) await patchLoreEntry(book.id, same.id, { name: entryName, content: rule, enabled: true, constant: true });
+    const same3 = (await loreEntries(book.id)).find((e) => e.name === entryName);
+    if (same3) await patchLoreEntry(book.id, same3.id, { name: entryName, content: rule, enabled: true, constant: true });
     else await createLoreEntry(book.id, { name: entryName, content: rule, enabled: true, constant: true, position: 2, depth: 1, order: 900 });
     return book;
   }
@@ -35508,9 +37402,9 @@ ${guardLoops(js2)}
     return out;
   }
   function bodyValues(body, format, fields) {
-    const text = body.replace(/\r\n?/g, "\n").replace(/\\n/g, "\n").trim();
-    if (format.lines) return { rows: text.split("\n").map((l) => l.trim()).filter(Boolean).map((l) => item(l, format, fields)), text };
-    return { ...item(text, format, fields), text };
+    const text2 = body.replace(/\r\n?/g, "\n").replace(/\\n/g, "\n").trim();
+    if (format.lines) return { rows: text2.split("\n").map((l) => l.trim()).filter(Boolean).map((l) => item(l, format, fields)), text: text2 };
+    return { ...item(text2, format, fields), text: text2 };
   }
   function bodyExample(format, fields) {
     if (format.sample.trim()) return format.sample.trim();
@@ -35519,8 +37413,8 @@ ${guardLoops(js2)}
   function swapsOf(f) {
     const out = /* @__PURE__ */ new Map();
     for (const line of (f.swaps ?? "").split("\n")) {
-      const at2 = line.indexOf("=");
-      if (at2 > 0) out.set(line.slice(0, at2).trim().toLowerCase(), line.slice(at2 + 1).trim());
+      const at3 = line.indexOf("=");
+      if (at3 > 0) out.set(line.slice(0, at3).trim().toLowerCase(), line.slice(at3 + 1).trim());
     }
     return out;
   }
@@ -35554,17 +37448,17 @@ ${guardLoops(js2)}
   function instructionsOf(def) {
     const out = {};
     for (const f of def.fields) {
-      const field = customFieldOf(def, f.name);
-      if (field && f.instruction.trim()) out[field] = f.instruction.trim();
+      const field2 = customFieldOf(def, f.name);
+      if (field2 && f.instruction.trim()) out[field2] = f.instruction.trim();
     }
     return out;
   }
   function withInstructions(fields, wanted, add = false, replace = add) {
     let added = 0;
     let set = 0;
-    const same = (a, b2) => a.trim().toLowerCase() === b2.trim().toLowerCase();
+    const same3 = (a, b2) => a.trim().toLowerCase() === b2.trim().toLowerCase();
     const next2 = fields.map((f) => {
-      const name = Object.keys(wanted).find((n) => same(n, f.name));
+      const name = Object.keys(wanted).find((n) => same3(n, f.name));
       if (!name || f.locked || f.instruction === wanted[name]) return f;
       if (!replace && f.instruction?.trim()) return f;
       set++;
@@ -35572,7 +37466,7 @@ ${guardLoops(js2)}
     });
     if (add) {
       for (const [name, instruction] of Object.entries(wanted)) {
-        if (next2.some((f) => same(f.name, name))) continue;
+        if (next2.some((f) => same3(f.name, name))) continue;
         next2.push({ name, value: "", instruction });
         added++;
       }
@@ -35581,9 +37475,9 @@ ${guardLoops(js2)}
   }
   function withoutInstructions(fields, names, wanted) {
     let removed = 0;
-    const same = (a, b2) => a.trim().toLowerCase() === b2.trim().toLowerCase();
+    const same3 = (a, b2) => a.trim().toLowerCase() === b2.trim().toLowerCase();
     const next2 = fields.map((f) => {
-      const name = names.find((n) => same(n, f.name));
+      const name = names.find((n) => same3(n, f.name));
       if (!name || f.locked || f.instruction === void 0) return f;
       if (wanted && wanted[name] !== void 0 && f.instruction !== wanted[name]) return f;
       removed++;
@@ -35640,7 +37534,7 @@ ${guardLoops(js2)}
     const out = {};
     for (const def of shown2) {
       if (def.source !== "tracker") continue;
-      for (const [field, text] of Object.entries(instructionsOf(def))) if (field in kept2) out[field] = text;
+      for (const [field2, text2] of Object.entries(instructionsOf(def))) if (field2 in kept2) out[field2] = text2;
     }
     return out;
   }
@@ -35673,7 +37567,7 @@ ${guardLoops(js2)}
   }
 
   // src/components/host.ts
-  var STYLE3 = `
+  var STYLE5 = `
 ${THEME_TOKENS}
 ${THEME_CSS}
 :host { display: block; position: relative; margin: 8px 0 2px; white-space: normal; }
@@ -35716,6 +37610,15 @@ ${HOVER_TOOLS}
     }
     return props;
   }
+  async function storyProps(def, chatId, messageId) {
+    const view = await storyAccess()?.at(chatId, messageId);
+    if (!view) return null;
+    const props = { ...view.values, ...view.derived };
+    for (const [prop, path] of Object.entries(def.map)) props[prop] = getPath(props, path) ?? null;
+    return props;
+  }
+  var fromRecord = (d2) => d2.source === "tracker" || d2.source === "story";
+  var recordProps = (def, chatId, messageId) => def.source === "story" ? storyProps(def, chatId, messageId) : trackerProps(def, chatId, messageId);
   async function useFont(el2, family) {
     if (!family) {
       el2.style.removeProperty("font-family");
@@ -35727,14 +37630,14 @@ ${HOVER_TOOLS}
   var NO_RECORD_FOR = 2e4;
   function matchScreenTags(full, names, wanted, skip = []) {
     const skipped = (a, b2) => skip.some((s) => a < s.end && b2 > s.start);
-    const screen = findTags(full, names).filter((t2) => !skipped(t2.start, t2.end));
+    const screen = findTags2(full, names).filter((t2) => !skipped(t2.start, t2.end));
     const used = /* @__PURE__ */ new Set();
     const found = [];
     const rest = [];
     let cursor = 0;
     const loose = (piece, chars) => {
       if (!piece.trim()) return null;
-      const [span] = findLoose(full.slice(cursor), [piece], chars);
+      const [span] = findLoose2(full.slice(cursor), [piece], chars);
       return span && !skipped(span.start + cursor, span.end + cursor) ? { start: span.start + cursor, end: span.end + cursor } : null;
     };
     for (const w2 of wanted) {
@@ -35796,7 +37699,7 @@ ${HOVER_TOOLS}
       this.element.dataset.jsx = inst.def.name;
       this.root = this.element.attachShadow({ mode: "open" });
       const style = document.createElement("style");
-      style.textContent = STYLE3;
+      style.textContent = STYLE5;
       this.frame = document.createElement("div");
       this.frame.className = "wrap";
       this.frame.setAttribute("part", "component");
@@ -35858,14 +37761,14 @@ ${HOVER_TOOLS}
       this.frame.append(tools, this.body);
       if (this.visible) void this.mount();
     }
-    /** Tracker mode: read the record again and redraw if it changed. */
-    refreshTracker() {
-      if (this.inst.def.source !== "tracker" || !this.mounted) return;
-      void trackerProps(this.inst.def, this.chatId, this.messageId).then((props) => {
+    /** Tracker or Pesto mode: read the record again and redraw if it changed. */
+    refreshTracker(source = "tracker") {
+      if (this.inst.def.source !== source || !this.mounted) return;
+      void recordProps(this.inst.def, this.chatId, this.messageId).then((props) => {
         if (!props || !this.mounted) return;
-        const text = JSON.stringify(props);
-        if (text === this.lastProps) return;
-        this.lastProps = text;
+        const text2 = JSON.stringify(props);
+        if (text2 === this.lastProps) return;
+        this.lastProps = text2;
         this.mounted.update(applySwaps(props, this.inst.def.fields));
       });
     }
@@ -35924,10 +37827,11 @@ ${HOVER_TOOLS}
           wait.textContent = t(`Loading ${this.inst.def.name}…`, `${this.inst.def.name} 불러오는 중…`);
           body.append(wait);
         }
-        const raw = this.inst.def.source === "tracker" ? await trackerProps(this.inst.def, this.chatId, this.messageId) : this.inst.props ?? {};
+        const raw = fromRecord(this.inst.def) ? await recordProps(this.inst.def, this.chatId, this.messageId) : this.inst.props ?? {};
         if (token !== this.token) return;
         if (!raw) {
-          this.host.noRecord(this.messageId);
+          if (this.inst.def.source === "tracker") this.host.noRecord(this.messageId);
+          else body.replaceChildren();
           return;
         }
         const props = applySwaps(raw, this.inst.def.fields);
@@ -36004,6 +37908,7 @@ ${HOVER_TOOLS}
     io = null;
     unread = null;
     unwatchTracker = null;
+    unwatchStory = null;
     /** Older replies the person opened, and recent ones they folded. */
     opened = /* @__PURE__ */ new Set();
     folded = /* @__PURE__ */ new Set();
@@ -36033,6 +37938,11 @@ ${HOVER_TOOLS}
         this.messages = new Map(list.map((m2) => [m2.id, m2]));
         if (changed) this.schedule();
       });
+      this.unwatchStory = onStoryChange((chatId) => {
+        if (chatId !== this.chatId || this.stopped) return;
+        this.refreshTrackers("story");
+        this.schedule();
+      });
       this.unwatchTracker = onTrackerWrite((chatId) => {
         if (chatId !== this.chatId || this.stopped) return;
         this.refreshTrackers();
@@ -36045,6 +37955,8 @@ ${HOVER_TOOLS}
       this.unread = null;
       this.unwatchTracker?.();
       this.unwatchTracker = null;
+      this.unwatchStory?.();
+      this.unwatchStory = null;
       this.noTracker.clear();
     }
     openSettings(componentId) {
@@ -36093,8 +38005,8 @@ ${HOVER_TOOLS}
     lacksRecord(id) {
       return Date.now() - (this.noTracker.get(id) ?? 0) < NO_RECORD_FOR;
     }
-    refreshTrackers() {
-      for (const slot of this.slots.values()) for (const v of slot.views.values()) v.refreshTracker();
+    refreshTrackers(source = "tracker") {
+      for (const slot of this.slots.values()) for (const v of slot.views.values()) v.refreshTracker(source);
     }
     /** The tags of tag-mode components in a reply's source, keyed `Name#n`, with their ```fornello block; tags in other code stay text. */
     sourceTags(message, el2) {
@@ -36107,7 +38019,7 @@ ${HOVER_TOOLS}
         for (const m2 of message.text.matchAll(/`[^`\n]+`/g)) if (!fences.some((f) => m2.index >= f.start && m2.index < f.end)) code.push({ start: m2.index, end: m2.index + m2[0].length });
         const counts = /* @__PURE__ */ new Map();
         const tags = [];
-        for (const tag of findTags(message.text, this.tagNames)) {
+        for (const tag of findTags2(message.text, this.tagNames)) {
           if (code.some((c) => tag.start >= c.start && tag.end <= c.end)) continue;
           const n = (counts.get(tag.name) ?? 0) + 1;
           counts.set(tag.name, n);
@@ -36122,7 +38034,7 @@ ${HOVER_TOOLS}
     instances(message, defs, asks, el2) {
       if (message.role !== "char" && message.role !== "narrator") return [];
       const out = [];
-      const byName = new Map(defs.filter((d2) => d2.source !== "tracker").map((d2) => [d2.name, d2]));
+      const byName = new Map(defs.filter((d2) => !fromRecord(d2)).map((d2) => [d2.name, d2]));
       if (byName.size) {
         for (const tag of this.sourceTags(message, el2)) {
           const def = byName.get(tag.name);
@@ -36132,6 +38044,7 @@ ${HOVER_TOOLS}
         }
       }
       if (message.role === "char" && !this.lacksRecord(message.id)) for (const d2 of defs.filter((x2) => x2.source === "tracker")) out.push({ def: d2, key: `${d2.name}@tracker`, ask: asks.get(d2.id) });
+      if (isSaved(message.id)) for (const d2 of defs.filter((x2) => x2.source === "story")) out.push({ def: d2, key: `${d2.name}@story`, ask: asks.get(d2.id) });
       return out;
     }
     /**
@@ -36152,7 +38065,9 @@ ${HOVER_TOOLS}
         }
       }
       const chosen = (await readChatData(chatId).catch(() => null))?.components ?? {};
-      return { defs, shown: defs.filter((d2) => chosen[d2.id] ?? d2.everyChat), asks };
+      const story = defs.some((d2) => d2.source === "story") && await storyAccess()?.has(chatId).catch(() => false);
+      const usable = story ? defs : defs.filter((d2) => d2.source !== "story");
+      return { defs: usable, shown: usable.filter((d2) => chosen[d2.id] ?? d2.everyChat), asks };
     }
     async scan(chatId) {
       const { defs, shown: shown2, asks } = chatId && this.settings.current.mode !== "off" ? await this.components(chatId) : { defs: [], shown: [], asks: /* @__PURE__ */ new Map() };
@@ -36161,7 +38076,7 @@ ${HOVER_TOOLS}
         if (this.slots.size) this.clear();
         return;
       }
-      this.tagNames = defs.filter((d2) => d2.source !== "tracker").map((d2) => d2.name);
+      this.tagNames = defs.filter((d2) => !fromRecord(d2)).map((d2) => d2.name);
       const elements = [...document.querySelectorAll("[data-message-id]")].filter((el2) => !el2.closest(".fornello-components"));
       if (!elements.length) return;
       const textOf = (el2) => [...el2.querySelectorAll(".mari-message-content")].map((c) => c.textContent ?? "").join("\n");
@@ -36206,10 +38121,10 @@ ${HOVER_TOOLS}
         const groups = /* @__PURE__ */ new Map();
         for (const inst of list) {
           const pre = inst.fence === void 0 ? void 0 : blocks[inst.fence];
-          const inText = !pre && inst.def.use === "scene" && inst.def.source !== "tracker";
-          const at2 = inText ? kept2.get(inst.key) : void 0;
-          const key = pre ? `${id}:${inst.fence}` : inText && (at2 || this.slots.get(`${id}@${inst.key}`)?.inText) ? `${id}@${inst.key}` : id;
-          const group = groups.get(key) ?? { pre, at: at2, list: [] };
+          const inText = !pre && inst.def.use === "scene" && !fromRecord(inst.def);
+          const at3 = inText ? kept2.get(inst.key) : void 0;
+          const key = pre ? `${id}:${inst.fence}` : inText && (at3 || this.slots.get(`${id}@${inst.key}`)?.inText) ? `${id}@${inst.key}` : id;
+          const group = groups.get(key) ?? { pre, at: at3, list: [] };
           group.list.push(inst);
           groups.set(key, group);
         }
@@ -36234,8 +38149,8 @@ ${HOVER_TOOLS}
     screenMatches(el2, screen) {
       const id = el2.dataset.messageId ?? "";
       const words = (s) => s.replace(/<([A-Z][\w$]*)\b[^<>]*>[\s\S]*?<\/\1\s*>/g, "").replace(/<[^<>]*>/g, "").replace(/[^\p{L}\p{N}]+/gu, "");
-      const text = words(this.messages.get(id)?.text ?? "").slice(0, 40);
-      if (!text || words(screen).includes(text)) {
+      const text2 = words(this.messages.get(id)?.text ?? "").slice(0, 40);
+      if (!text2 || words(screen).includes(text2)) {
         this.retries.delete(id);
         return true;
       }
@@ -36264,7 +38179,7 @@ ${HOVER_TOOLS}
       }
     }
     /** A box of components: in place of its ```fornello block, where its tag was, or under the reply; put back after a redraw. */
-    place(el2, id, key, pre, at2) {
+    place(el2, id, key, pre, at3) {
       let slot = this.slots.get(key);
       if (!slot) {
         const container = document.createElement("div");
@@ -36282,9 +38197,9 @@ ${HOVER_TOOLS}
         return slot;
       }
       if (slot.inText && slot.container.isConnected) return slot;
-      if (at2?.node.isConnected && at2.node.parentNode) {
-        let node = at2.node;
-        let offset = at2.offset;
+      if (at3?.node.isConnected && at3.node.parentNode) {
+        let node = at3.node;
+        let offset = at3.offset;
         for (let next2 = node.nextSibling; offset > node.length && next2; next2 = next2.nextSibling) {
           if (next2 instanceof Text) {
             offset -= node.length;
@@ -36403,7 +38318,8 @@ ${HOVER_TOOLS}
         [
           { value: "tag", label: t("Tag in reply", "답변 속 태그") },
           { value: "body", label: t("Text in tag", "본문"), title: t("Values as text inside the tag: <Tag>a|b</Tag>", "태그 안의 글로 값 받기: <Tag>a|b</Tag>") },
-          { value: "tracker", label: t("Tracker", "트래커") }
+          { value: "tracker", label: t("Tracker", "트래커") },
+          { value: "story", label: t("Pesto", "Pesto"), title: t("The story's values after each reply (a card's pesto:schema)", "답변마다 이야기의 값 (카드의 pesto:schema)") }
         ],
         d2.source,
         (v) => {
@@ -36462,8 +38378,8 @@ ${HOVER_TOOLS}
           t("Values from", "값 받는 곳"),
           source,
           t(
-            "· Tag in reply: attributes (<Tag a={1} />)\n· Text in tag: <Tag>a|b|c</Tag>\n· Tracker: Marinara's tracker",
-            "· 답변 속 태그: 속성(<Tag a={1} />)\n· 본문: <Tag>a|b|c</Tag>\n· 트래커: 마리나라 트래커"
+            "· Tag in reply: attributes (<Tag a={1} />)\n· Text in tag: <Tag>a|b|c</Tag>\n· Tracker: Marinara's tracker\n· Pesto: the story's values after each reply (Pesto on, a card with pesto:schema)",
+            "· 답변 속 태그: 속성(<Tag a={1} />)\n· 본문: <Tag>a|b|c</Tag>\n· 트래커: 마리나라 트래커\n· Pesto: 답변마다 이야기의 값 (Pesto를 켜고, pesto:schema가 있는 카드)"
           )
         )
       );
@@ -36485,7 +38401,7 @@ ${HOVER_TOOLS}
         );
       }
       if (d2.source === "body") left.append(...this.bodySettings(d2));
-      if (d2.source !== "tracker") {
+      if (d2.source !== "tracker" && d2.source !== "story") {
         const rule = componentRule(d2.name, d2.use, example, d2.when, d2.fields, d2.source === "body" ? d2.body : void 0);
         const use = segmented(
           "fornello-component-use",
@@ -36593,10 +38509,10 @@ ${HOVER_TOOLS}
     /** The tag the AI should write, filled with the examples. */
     exampleTag(d2, name) {
       if (d2.source !== "body") return exampleTagFor(name, d2.fields);
-      const text = bodyExample(d2.body, d2.fields);
+      const text2 = bodyExample(d2.body, d2.fields);
       return d2.body.lines ? `<${name}>
-${text}
-</${name}>` : `<${name}>${text}</${name}>`;
+${text2}
+</${name}>` : `<${name}>${text2}</${name}>`;
     }
     /** The values the preview draws with: the examples (or the example text inside the tag), swaps applied. */
     previewValues(d2, name) {
@@ -36668,8 +38584,9 @@ ${text}
     }
     /** The values table: name, kind, example, instruction (and the tracker field in tracker mode); the code follows names. */
     fieldTable(d2, name) {
-      const paths = this.trackerPaths();
-      const listId = "fornello-tracker-paths";
+      const record = d2.source === "tracker" || d2.source === "story";
+      const paths = d2.source === "story" ? this.host.storyPaths() : this.trackerPaths();
+      const listId = d2.source === "story" ? "fornello-story-paths" : "fornello-tracker-paths";
       const kinds = { text: t("Text", "글자"), number: t("Number", "숫자"), bool: t("Yes/no", "참/거짓"), list: t("List", "목록"), object: t("Group", "묶음") };
       const edit = (change) => {
         if (ownFields(d2.kind, d2.source === "body", d2.body)) {
@@ -36730,8 +38647,12 @@ ${text}
           instruction,
           swaps
         );
-        if (d2.source === "tracker") {
-          const path = el("input", { value: d2.map[f.name] ?? "", placeholder: `custom.${f.name}`, "aria-label": t(`Tracker field for ${f.name}`, `${f.name}의 트래커 항목`) });
+        if (record) {
+          const path = el("input", {
+            value: d2.map[f.name] ?? "",
+            placeholder: d2.source === "story" ? f.name : `custom.${f.name}`,
+            "aria-label": d2.source === "story" ? t(`Pesto value for ${f.name}`, `${f.name}의 Pesto 값`) : t(`Tracker field for ${f.name}`, `${f.name}의 트래커 항목`)
+          });
           path.setAttribute("list", listId);
           path.addEventListener("change", () => {
             const v = path.value.trim();
@@ -36756,8 +38677,8 @@ ${text}
           t("Values", "값"),
           helpTip(
             t(
-              "Edits here change the code or template too\nExample: for the preview\nInstruction: what the AI writes (in the rule)\nSwaps: value=shown, one a line\nTracker path: empty means the field of the same name",
-              "여기서 고치면 코드·템플릿도 바뀜\n예시값: 미리보기용\n지시사항: AI가 쓸 것(규칙에 들어감)\n바꾸기: 값=보일 글, 한 줄에 하나\n트래커 경로: 비우면 같은 이름 항목"
+              "Edits here change the code or template too\nExample: for the preview\nInstruction: what the AI writes (in the rule)\nSwaps: value=shown, one a line\nTracker or Pesto path: empty means the value of the same name",
+              "여기서 고치면 코드·템플릿도 바뀜\n예시값: 미리보기용\n지시사항: AI가 쓸 것(규칙에 들어감)\n바꾸기: 값=보일 글, 한 줄에 하나\n트래커·Pesto 경로: 비우면 같은 이름의 값"
             ),
             t("Values", "값")
           ),
@@ -36765,7 +38686,7 @@ ${text}
           el("button", { className: "mini", disabled: !name && !ownFields(d2.kind, d2.source === "body", d2.body), onclick: add }, t("+ Value", "+ 값"))
         ),
         d2.fields.length ? el("div", { className: "ftable" }, ...rows) : el("div", { className: "note" }, d2.kind === "html" ? t("Values the template asks for ({{name}}) show here.", "템플릿이 쓰는 값({{이름}})이 여기 나와요.") : name ? t("This component takes no values.", "값이 없는 컴포넌트예요.") : t("Values show once the code has a component.", "코드에 컴포넌트가 있으면 값이 보여요.")),
-        d2.source === "tracker" ? el("datalist", { id: listId }, ...paths.map((p2) => el("option", { value: p2 }))) : null
+        record ? el("datalist", { id: listId }, ...paths.map((p2) => el("option", { value: p2 }))) : null
       );
     }
     trackerPaths() {
@@ -36807,7 +38728,7 @@ ${text}
     async runPreview(d2, box) {
       this.stopPreview();
       this.waitToPreview = false;
-      const run = this.previewRun;
+      const run2 = this.previewRun;
       box.replaceChildren();
       const host = document.createElement("div");
       if (d2.kind === "html") host.style.cssText = "position:relative;contain:paint";
@@ -36842,7 +38763,7 @@ ${text}
         const props = this.previewValues(d2, name);
         if (sheets2.length) await applyStylesheets(sheets2, document, shadow);
         const api2 = await pageApi({ preview: true, report: showErr, ui: screenUi });
-        if (run !== this.previewRun) {
+        if (run2 !== this.previewRun) {
           api2.dispose();
           return;
         }
@@ -36928,8 +38849,8 @@ ${text}
       const { list, ids } = bringIn(this.host.settings.current.components, picked);
       const sets = [...this.host.settings.current.componentSets];
       if (imp.asSet) {
-        const at2 = sets.findIndex((x2) => x2.name === imp.found.name);
-        if (at2 >= 0) sets[at2] = { ...sets[at2], componentIds: [.../* @__PURE__ */ new Set([...sets[at2].componentIds, ...ids])] };
+        const at3 = sets.findIndex((x2) => x2.name === imp.found.name);
+        if (at3 >= 0) sets[at3] = { ...sets[at3], componentIds: [.../* @__PURE__ */ new Set([...sets[at3].componentIds, ...ids])] };
         else sets.push({ id: newComponentId(), name: imp.found.name, componentIds: ids });
       }
       if (!await this.host.save({ components: list, componentSets: sets })) return;
@@ -37002,9 +38923,9 @@ ${text}
         return;
       }
       const sets = [...this.host.settings.current.componentSets];
-      const at2 = sets.findIndex((x2) => x2.id === set.id);
+      const at3 = sets.findIndex((x2) => x2.id === set.id);
       const next2 = { ...set, name: set.name.trim() };
-      if (at2 >= 0) sets[at2] = next2;
+      if (at3 >= 0) sets[at3] = next2;
       else sets.push(next2);
       if (!await this.host.save({ componentSets: sets })) return;
       this.editingSet = null;
@@ -37017,7 +38938,7 @@ ${text}
   };
 
   // src/ui/settings-panel.ts
-  var STYLE4 = `
+  var STYLE6 = `
 ${THEME_TOKENS}
 ${THEME_CSS}
 :host { position: fixed; inset: 0; z-index: 2147482700; }
@@ -37062,12 +38983,20 @@ button.mini { padding: 2px 8px; font-size: 12px; }
 .err { color: var(--d-danger); white-space: pre-wrap; font-size: 12px; }
 .ok { color: #3fb97a; font-size: 12px; }
 input.num { width: 76px !important; min-width: 0 !important; }
-.card-h { display: flex; align-items: center; gap: 8px; margin-top: 10px; font-size: 12px; color: var(--d-muted); }
-.card-h b { color: var(--d-text); }
-.card-h .spacer { flex: 1; }
-.item .info { font-size: 11px; color: var(--d-muted); }
-pre.src { margin: 0 0 4px; max-height: 280px; overflow: auto; font: 11px/1.45 var(--d-mono); padding: 8px; border: 1px solid var(--d-line); border-radius: var(--d-radius-sm); background: var(--d-field); white-space: pre; }
-.script-edit { display: flex; flex-direction: column; gap: 8px; margin-top: 8px; }
+${TABS_CSS}
+/* the components tab: the list on the left, the open one's editor on the right */
+main.two { display: grid; grid-template-columns: minmax(300px, 380px) minmax(0, 1fr); gap: 0; padding: 0; overflow: hidden; flex: 1; min-height: 0; }
+main.two > .lpane, main.two > .rpane { overflow: auto; padding: 12px 16px 18px; min-height: 0; }
+main.two > .rpane { border-left: 1px solid var(--d-divider); }
+.rpane .editor { grid-template-columns: 1fr; }
+.rpane .editor-wrap { margin-top: 0; }
+.sec-h button.icon { display: inline-flex; align-items: center; padding: 4px 6px; }
+@media (max-width: 720px) { main.two { grid-template-columns: 1fr; overflow: auto; } main.two > .lpane, main.two > .rpane { overflow: visible; } main.two > .rpane { border-left: none; border-top: 1px solid var(--d-divider); } }
+/* ⚙: pages and component display, under the header; the whole window on a phone */
+header { position: relative; }
+.gear-pop { position: absolute; right: 12px; top: calc(100% + 4px); z-index: 5; width: min(440px, calc(100% - 24px)); max-height: 70vh; overflow: auto; padding: 10px 14px 14px; border: 1px solid var(--d-line); border-radius: var(--d-radius); background: var(--d-panel-solid); box-shadow: var(--d-shadow); display: flex; flex-direction: column; gap: 8px; }
+.gear-pop .pop-h { display: flex; align-items: center; justify-content: space-between; }
+@media (max-width: 600px) { .gear-pop { position: fixed; inset: 0; width: auto; max-height: none; border: none; border-radius: 0; } }
 `;
   var SettingsPanel = class {
     constructor(settings) {
@@ -37082,6 +39011,7 @@ pre.src { margin: 0 0 4px; max-height: 280px; overflow: auto; font: 11px/1.45 va
         renderSoon: () => this.renderSoon(),
         fonts: () => this.fonts,
         tracker: () => this.tracker,
+        storyPaths: () => this.storyPaths,
         saveComponent: (d2) => this.saveComponent(d2, true),
         removeComponent: (d2) => this.removeComponent(d2),
         exportFile: (defs, name) => this.sets.exportFile(defs, name),
@@ -37100,10 +39030,10 @@ pre.src { margin: 0 0 4px; max-height: 280px; overflow: auto; font: 11px/1.45 va
     selected = null;
     draft = null;
     tracker = null;
+    /** The open chat's Pesto paths, for the component editor (empty when it has none). */
+    storyPaths = [];
     /** Components the cards of the open chat bring. */
     cards = [];
-    scripts = null;
-    openLibrary = null;
     /** The window slides in once, when it opens (not on every redraw). */
     entering = false;
     /** Marinara's own font families, for the editor's font choice; null while not read. */
@@ -37112,6 +39042,10 @@ pre.src { margin: 0 0 4px; max-height: 280px; overflow: auto; font: 11px/1.45 va
     chatChoice = null;
     /** The open chat's components changed (ComponentHost draws again). */
     onChatComponents = null;
+    /** The tabs of Fornello's window (main.ts sets it). */
+    tabs = null;
+    /** ⚙ is open: pages and component display. */
+    gearOpen = false;
     /** Where focus goes back to when the window closes. */
     returnFocus = null;
     /** A press is going on in the window: a redraw waits for its click (the button pressed must still be there). */
@@ -37120,11 +39054,6 @@ pre.src { margin: 0 0 4px; max-height: 280px; overflow: auto; font: 11px/1.45 va
     redrawTimer = null;
     editor;
     sets;
-    /** Opens the settings at the components (the top-bar menu's "Components"). */
-    openComponents() {
-      this.open();
-      requestAnimationFrame(() => this.root?.querySelector('[data-section="components"]')?.scrollIntoView({ block: "start" }));
-    }
     open(componentId) {
       if (componentId) this.select(componentId);
       if (!this.element) {
@@ -37142,6 +39071,9 @@ pre.src { margin: 0 0 4px; max-height: 280px; overflow: auto; font: 11px/1.45 va
       }
       const chatId = currentChatId();
       if (chatId) void trackerState(void 0, chatId).then((t2) => this.tracker = t2).catch(() => void 0);
+      this.storyPaths = [];
+      if (chatId)
+        void storyAccess()?.at(chatId, null).then((v) => this.storyPaths = v ? storyPaths(v) : []).catch(() => void 0);
       this.cards = [];
       this.chatChoice = null;
       if (!this.fonts)
@@ -37160,11 +39092,6 @@ pre.src { margin: 0 0 4px; max-height: 280px; overflow: auto; font: 11px/1.45 va
           if (this.root && cards.length) this.render();
         }).catch(() => void 0);
       this.render();
-    }
-    /** Lets the scripts section show what runs, and open the library window. */
-    attachScripts(host, openLibrary) {
-      this.scripts = host;
-      this.openLibrary = openLibrary;
     }
     close() {
       this.editor.stopPreview();
@@ -37207,8 +39134,18 @@ pre.src { margin: 0 0 4px; max-height: 280px; overflow: auto; font: 11px/1.45 va
     onKey = (e) => {
       if (e.key !== "Escape" || !this.element) return;
       e.stopPropagation();
+      if (this.gearOpen) {
+        this.gearOpen = false;
+        this.render();
+        return;
+      }
       this.close();
     };
+    /** Opens ⚙ (pages and component display) over the components. */
+    openGear() {
+      this.gearOpen = true;
+      this.render();
+    }
     /** Tab stays inside the window (Marinara behind the backdrop is out of reach). */
     trapTab(e) {
       if (e.key !== "Tab" || !this.root) return;
@@ -37216,11 +39153,11 @@ pre.src { margin: 0 0 4px; max-height: 280px; overflow: auto; font: 11px/1.45 va
       if (!items2.length) return;
       const first = items2[0];
       const last = items2[items2.length - 1];
-      const at2 = this.root.activeElement;
-      if (e.shiftKey && (at2 === first || !at2)) {
+      const at3 = this.root.activeElement;
+      if (e.shiftKey && (at3 === first || !at3)) {
         e.preventDefault();
         last.focus();
-      } else if (!e.shiftKey && at2 === last) {
+      } else if (!e.shiftKey && at3 === last) {
         e.preventDefault();
         first.focus();
       }
@@ -37235,25 +39172,12 @@ pre.src { margin: 0 0 4px; max-height: 280px; overflow: auto; font: 11px/1.45 va
       if (!this.root) return;
       const s = this.settings.current;
       const style = document.createElement("style");
-      style.textContent = STYLE4;
-      const dispensa = window.__dispensa?.openSettings;
+      style.textContent = STYLE6;
+      const go = this.tabs ?? (() => void 0);
       const head = el(
         "header",
         {},
-        el("h2", {}, "🔥 Fornello"),
-        el(
-          "select",
-          {
-            className: "lang",
-            title: t("Language", "언어"),
-            "aria-label": t("Language", "언어"),
-            "data-key": "lang",
-            onchange: (e) => setLangChoice(e.target.value)
-          },
-          ...["auto", "en", "ko"].map((c) => el("option", { value: c, selected: c === langChoice() }, `🌐 ${LANG_NAMES[c]()}`))
-        ),
-        // Dispensa's window links here; this goes the other way
-        dispensa ? el("button", { title: t("Open Dispensa", "Dispensa 열기"), onclick: () => (this.close(), dispensa()) }, "Dispensa") : null,
+        ...tabHeader("components", go, { open: this.gearOpen, toggle: () => (this.gearOpen = !this.gearOpen, this.render()) }),
         el("button", { className: "ghost", title: t("Close", "닫기"), "aria-label": t("Close", "닫기"), onclick: () => this.close() }, "✕")
       );
       const mode = el(
@@ -37353,12 +39277,11 @@ pre.src { margin: 0 0 4px; max-height: 280px; overflow: auto; font: 11px/1.45 va
         t("Components", "컴포넌트"),
         t("Small screens drawn in replies, from JSX or an HTML template", "답변 속에 그리는 작은 화면(JSX·HTML 템플릿)"),
         [
-          el("button", { onclick: () => this.newComponent("") }, t("+ New component", "+ 새 컴포넌트")),
-          el("button", { title: t("Import a components file, .jsx, .html or character card", "컴포넌트 파일·.jsx·.html·캐릭터 카드 불러오기"), onclick: () => this.sets.importFile() }, t("Import", "불러오기")),
-          s.components.length ? el("button", { title: t("Save all components to one file", "컴포넌트 전부를 파일 하나로 저장"), onclick: () => this.sets.exportFile(s.components, t("Fornello components", "Fornello 컴포넌트")) }, t("Export", "내보내기")) : null
+          el("button", { className: "icon", innerHTML: ICON_PLUS, title: t("New component", "새 컴포넌트"), "aria-label": t("New component", "새 컴포넌트"), onclick: () => this.newComponent("") }),
+          el("button", { className: "icon", innerHTML: ICON_IMPORT, title: t("Import a components file, .jsx, .html or character card", "컴포넌트 파일·.jsx·.html·캐릭터 카드 불러오기"), "aria-label": t("Import", "불러오기"), onclick: () => this.sets.importFile() }),
+          s.components.length ? el("button", { className: "icon", innerHTML: ICON_EXPORT, title: t("Save all components to one file", "컴포넌트 전부를 파일 하나로 저장"), "aria-label": t("Export", "내보내기"), onclick: () => this.sets.exportFile(s.components, t("Fornello components", "Fornello 컴포넌트")) }) : null
         ],
         s.components.length ? list : el("div", { className: "note", style: "padding:6px 0" }, t("No components yet.", "아직 컴포넌트가 없어요.")),
-        this.sets.importing ? this.sets.importer(this.sets.importing) : this.draft ? this.editor.draw(this.draft) : null,
         this.sets.setsBlock(),
         this.cards.length ? el(
           "div",
@@ -37387,23 +39310,43 @@ pre.src { margin: 0 0 4px; max-height: 280px; overflow: auto; font: 11px/1.45 va
         ),
         setting(t("Components of older replies", "더 오래된 답변의 컴포넌트"), older, t("Collapse: one line, opens on a click", "접어 두기: 한 줄, 누르면 펼침"))
       );
-      const win = el("div", { className: `win${this.draft ? " wide" : ""}${this.entering ? " d-enter" : ""}`, role: "dialog", "aria-modal": "true", "aria-label": t("Fornello settings", "Fornello 설정"), tabIndex: -1 }, head, el("main", {}, pages, components, display, this.scriptsSection()));
+      const gear = this.gearOpen ? el(
+        "div",
+        { className: "gear-pop", role: "dialog", "aria-label": t("Fornello settings", "Fornello 설정") },
+        el("div", { className: "pop-h" }, el("strong", {}, t("Fornello settings", "Fornello 설정")), el("button", { className: "ghost", "aria-label": t("Close settings", "설정 닫기"), onclick: () => (this.gearOpen = false, this.render()) }, "✕")),
+        pages,
+        display,
+        section(
+          t("Character import", "캐릭터 가져오기"),
+          void 0,
+          [],
+          setting(
+            t("Pictures too", "그림까지"),
+            toggle(s.marinaraImport, (v) => void this.save({ marinaraImport: v }), t("Pictures too", "그림까지"), "marinara-import"),
+            t("A .charx, JPEG card or card .zip picked in Marinara's character import comes in with its pictures, lorebook and QR sets", "마리나라 캐릭터 가져오기에서 고른 .charx·JPEG 카드·카드 .zip을 그림·로어북·QR 세트까지 가져와요")
+          )
+        )
+      ) : null;
+      head.append(...gear ? [gear] : []);
+      const win = el("div", { className: `win tabbed${this.entering ? " d-enter" : ""}`, role: "dialog", "aria-modal": "true", "aria-label": t("Fornello settings", "Fornello 설정"), tabIndex: -1 }, head, el("main", { className: "two" }, el("div", { className: "lpane" }, components), el("div", { className: "rpane" }, this.sets.importing ? this.sets.importer(this.sets.importing) : this.draft ? this.editor.draw(this.draft) : el("div", { className: "note" }, t("Pick a component to edit it, or make a new one.", "고칠 컴포넌트를 고르거나 새로 만드세요.")))));
       const back = el("div", { className: `back${this.entering ? " d-fade" : ""}` }, win);
       const focused = this.root.activeElement;
-      const keyOf = (x2) => x2.getAttribute("data-key") || x2.getAttribute("aria-label") || x2.title || x2.textContent || "";
-      const focusKey = focused ? keyOf(focused) : null;
+      const keyOf2 = (x2) => x2.getAttribute("data-key") || x2.getAttribute("aria-label") || x2.title || x2.textContent || "";
+      const focusKey = focused ? keyOf2(focused) : null;
       const takeFocus = this.entering || !!focused;
       this.entering = false;
       back.addEventListener("mousedown", (e) => {
         if (e.target === back) this.close();
       });
-      const scroll = this.root.querySelector("main")?.scrollTop ?? 0;
+      const scrolls = [".lpane", ".rpane"].map((q2) => this.root.querySelector(q2)?.scrollTop ?? 0);
       this.root.replaceChildren(style, back);
-      const main = this.root.querySelector("main");
-      if (main) main.scrollTop = scroll;
+      [".lpane", ".rpane"].forEach((q2, i) => {
+        const pane = this.root.querySelector(q2);
+        if (pane) pane.scrollTop = scrolls[i];
+      });
       if (takeFocus) {
-        const same = focusKey ? [...win.querySelectorAll("button, input, select, textarea, [tabindex]")].find((x2) => keyOf(x2) === focusKey) : void 0;
-        (same ?? win).focus({ preventScroll: true });
+        const same3 = focusKey ? [...win.querySelectorAll("button, input, select, textarea, [tabindex]")].find((x2) => keyOf2(x2) === focusKey) : void 0;
+        (same3 ?? win).focus({ preventScroll: true });
       }
     }
     newComponent(code, kind = "jsx", fileName2 = "") {
@@ -37455,33 +39398,6 @@ pre.src { margin: 0 0 4px; max-height: 280px; overflow: auto; font: 11px/1.45 va
       if (!await this.save({ components: this.settings.current.components.filter((w2) => w2.id !== d2.id), componentSets: this.settings.current.componentSets.map((x2) => ({ ...x2, componentIds: x2.componentIds.filter((id) => id !== d2.id) })) })) return;
       this.select(null);
       this.render();
-    }
-    // ── background scripts ──
-    /** What runs behind the chat, in short; the library window has the rest. */
-    scriptsSection() {
-      const s = this.settings.current;
-      const status = this.scripts?.status();
-      const own = libraryScripts(s.scripts).length;
-      const cards = (status?.cards ?? []).reduce((n, c) => n + c.scripts.length, 0);
-      const chat = status?.chat?.scripts.length ?? 0;
-      const running = status?.running.size ?? 0;
-      const errors = [...status?.errors.values() ?? []].reduce((n, list) => n + list.length, 0);
-      const section_ = section(
-        t("Scripts", "스크립트"),
-        t(
-          "Scripts that run behind the chat: yours in every chat, a card's or chat's once allowed",
-          "채팅 뒤에서 도는 스크립트. 내 것은 모든 채팅에서, 카드·채팅 것은 허락하면 실행"
-        ),
-        [el("button", { className: "primary", onclick: () => this.openLibrary?.() }, t("Open the library", "보관함 열기"))],
-        el(
-          "div",
-          { className: "note", style: "padding:4px 0" },
-          t(`Mine: ${own} · this chat's cards: ${cards} · this chat: ${chat} · running: ${running}`, `내 스크립트 ${own} · 이 채팅의 카드 ${cards} · 이 채팅 ${chat} · 실행 중 ${running}`),
-          errors ? el("span", { className: "err" }, t(` · errors: ${errors}`, ` · 오류 ${errors}`)) : null
-        )
-      );
-      section_.dataset.section = "scripts";
-      return section_;
     }
     /** The open chat's switches: which components it shows (its own choice, else each component's "new chats" one). */
     chatComponents() {
@@ -37565,14 +39481,14 @@ pre.src { margin: 0 0 4px; max-height: 280px; overflow: auto; font: 11px/1.45 va
       }
     };
   }
-  function trackedDocument(tracked, made) {
+  function trackedDocument(tracked, made2) {
     const own = trackListeners(document, tracked);
     const create = {
-      createElement: (...a) => remember(document.createElement(...a)),
-      createElementNS: (ns, name, options) => remember(document.createElementNS(ns, name, options))
+      createElement: (...a) => remember2(document.createElement(...a)),
+      createElementNS: (ns, name, options) => remember2(document.createElementNS(ns, name, options))
     };
-    function remember(node) {
-      made.add(node);
+    function remember2(node) {
+      made2.add(node);
       return node;
     }
     const bound = /* @__PURE__ */ new WeakMap();
@@ -37617,15 +39533,15 @@ ${isModuleCode(code) ? toCommonJs(code) : code}
       return null;
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e);
-      const at2 = /\((\d+):(\d+)\)/.exec(message);
-      return { message: message.replace(/\s*\(\d+:\d+\)\s*$/, ""), line: at2 ? Math.max(1, Number(at2[1]) - 1) : null };
+      const at3 = /\((\d+):(\d+)\)/.exec(message);
+      return { message: message.replace(/\s*\(\d+:\d+\)\s*$/, ""), line: at3 ? Math.max(1, Number(at3[1]) - 1) : null };
     }
   }
   async function runScript(code, globals, report, onScope) {
     const timers = /* @__PURE__ */ new Set();
     const tracked = [];
     const observers = /* @__PURE__ */ new Set();
-    const made = /* @__PURE__ */ new WeakSet();
+    const made2 = /* @__PURE__ */ new WeakSet();
     const stop = () => {
       for (const id of timers) clearTracked(window, id);
       timers.clear();
@@ -37633,7 +39549,7 @@ ${isModuleCode(code) ? toCommonJs(code) : code}
       for (const o2 of [...observers]) o2.disconnect();
       observers.clear();
       for (const parent of [document.body, document.head]) {
-        for (const child of parent ? [...parent.children] : []) if (made.has(child)) child.remove();
+        for (const child of parent ? [...parent.children] : []) if (made2.has(child)) child.remove();
       }
     };
     const problem = isModuleCode(code) ? checkScript(code) : null;
@@ -37644,7 +39560,7 @@ ${isModuleCode(code) ? toCommonJs(code) : code}
     let failed = false;
     let define = () => {
     };
-    const scope = sandboxScope(window, trackedDocument(tracked, made), { ...trackedObservers(observers), ...globals, ...trackListeners(window, tracked) }, timers, {
+    const scope = sandboxScope(window, trackedDocument(tracked, made2), { ...trackedObservers(observers), ...globals, ...trackListeners(window, tracked) }, timers, {
       report,
       onScope: (d2) => {
         define = d2;
@@ -37738,9 +39654,9 @@ ${code}
       this.errors.delete(key);
       this.changed();
     }
-    log(key, kind, text) {
+    log(key, kind, text2) {
       const list = this.logs.get(key) ?? [];
-      list.push({ at: Date.now(), kind, text: text.slice(0, 2e3) });
+      list.push({ at: Date.now(), kind, text: text2.slice(0, 2e3) });
       this.logs.set(key, list.slice(-KEEP_LOG));
       this.changed();
     }
@@ -37872,10 +39788,10 @@ ${JSON.stringify(d2.buttons)}`)]));
         });
         if (r.stopped || currentChatId() !== chatId) return api2.dispose();
         r.api = api2;
-        const run = await runScript(def.code, { ...api2.globals, console: this.console(def) }, report, api2.bindScope);
-        if (r.stopped) return run.stop();
-        r.run = run;
-        if (run.failed) {
+        const run2 = await runScript(def.code, { ...api2.globals, console: this.console(def) }, report, api2.bindScope);
+        if (r.stopped) return run2.stop();
+        r.run = run2;
+        if (run2.failed) {
           r.failed = true;
           r.api = null;
           api2.dispose();
@@ -37909,7 +39825,7 @@ ${JSON.stringify(d2.buttons)}`)]));
       const headings = scriptHeadings(live2.map((r) => r.def));
       this.hooks.buttons(
         live2.flatMap(
-          (r) => r.buttons.filter((b2) => b2.visible).map((b2) => ({ script: headings.get(r.def.key) ?? r.def.name, label: b2.name, press: () => void emitEvent(buttonEvent(r.def.key, b2.name), [], (e) => this.report(r.def, e)) }))
+          (r) => r.buttons.filter((b2) => b2.visible).map((b2) => ({ key: r.def.key, script: headings.get(r.def.key) ?? r.def.name, label: b2.name, press: () => void emitEvent(buttonEvent(r.def.key, b2.name), [], (e) => this.report(r.def, e)) }))
         )
       );
     }
@@ -37946,19 +39862,19 @@ ${JSON.stringify(d2.buttons)}`)]));
   }
 
   // src/ui/script-library.ts
-  var STYLE5 = `
+  var STYLE7 = `
 ${THEME_TOKENS}
 :host { position: fixed; inset: 0; z-index: 2147482700; }
 * { box-sizing: border-box; }
 ${CONTROLS}
 ${FORM_CSS}
 ${BACKDROP_CSS}
+${TABS_CSS}
 .win { width: min(1040px, 100%); height: min(860px, 100%); display: flex; flex-direction: column; overflow: hidden;
   font: 13px/1.45 var(--d-font); color: var(--d-text); background: var(--d-panel-solid); border: 1px solid var(--d-line); border-radius: var(--d-radius); box-shadow: var(--d-shadow); }
 header { display: flex; align-items: center; gap: 8px; padding: 10px 14px; border-bottom: 1px solid var(--d-divider); }
 header h2 { margin: 0; font-size: 15px; color: var(--d-title); flex: 1; }
 .body { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(280px, 380px) minmax(0, 1fr); }
-.body.single { grid-template-columns: minmax(0, 1fr); }
 .lists { overflow: auto; padding: 8px 12px 16px; border-right: 1px solid var(--d-divider); }
 .pane { overflow: auto; padding: 12px 16px 18px; display: flex; flex-direction: column; gap: 8px; min-width: 0; }
 @media (max-width: 760px) {
@@ -38020,6 +39936,8 @@ textarea.small { min-height: 64px; resize: vertical; font: 12px/1.45 var(--d-mon
     returnFocus = null;
     /** A drag in progress: where it comes from. */
     dragging = null;
+    /** The tabs of Fornello's window (main.ts sets it). */
+    tabs = null;
     async open() {
       if (!this.element) {
         this.element = document.createElement("div");
@@ -38088,18 +40006,18 @@ textarea.small { min-height: 64px; resize: vertical; font: 12px/1.45 var(--d-mon
       if (!this.root) return;
       const scroll = this.root.querySelector(".lists")?.scrollTop ?? 0;
       const style = document.createElement("style");
-      style.textContent = STYLE5;
+      style.textContent = STYLE7;
       const head = el(
         "header",
         {},
-        el("h2", {}, t("🔥 Script library", "🔥 스크립트 보관함")),
+        ...this.tabs ? tabHeader("scripts", this.tabs) : [el("h2", {}, t("🔥 Script library", "🔥 스크립트 보관함"))],
         el("button", { className: "ghost", "aria-label": t("Close", "닫기"), onclick: () => this.close() }, "✕")
       );
       const lists2 = el("div", { className: "lists" }, ...this.shown.map((sh) => this.listSection(sh)));
       if (!this.shown.length) lists2.append(el("div", { className: "note" }, t("Loading…", "불러오는 중…")));
       const pane = el("div", { className: "pane" }, this.editing ? this.editor(this.editing) : el("div", { className: "note" }, t("Pick a script to edit it, or make a new one.", "고칠 스크립트를 고르거나 새로 만드세요.")));
       const body = el("div", { className: `body${this.editing ? " editing" : ""}` }, lists2, pane);
-      const win = el("div", { className: "win", role: "dialog", "aria-modal": "true", "aria-label": t("Script library", "스크립트 보관함"), tabIndex: -1 }, head, body);
+      const win = el("div", { className: `win${this.tabs ? " tabbed" : ""}`, role: "dialog", "aria-modal": "true", "aria-label": t("Script library", "스크립트 보관함"), tabIndex: -1 }, head, body);
       const back = el("div", { className: "back", onclick: (e) => e.target === back && this.close() }, win);
       this.root.replaceChildren(style, back);
       const newLists = this.root.querySelector(".lists");
@@ -38154,11 +40072,11 @@ textarea.small { min-height: 64px; resize: vertical; font: 12px/1.45 var(--d-mon
     }
     folderBlock(sh, folder) {
       const key = `${placeKey(sh.place)}/${folder.id}`;
-      const closed = this.closedFolders.has(key);
+      const closed2 = this.closedFolders.has(key);
       const head = el(
         "div",
         { className: "item", draggable: true },
-        el("button", { className: "mini ghost", "aria-label": closed ? t("Open", "열기") : t("Close", "닫기"), onclick: () => (closed ? this.closedFolders.delete(key) : this.closedFolders.add(key), this.render()) }, closed ? "▸" : "▾"),
+        el("button", { className: "mini ghost", "aria-label": closed2 ? t("Open", "열기") : t("Close", "닫기"), onclick: () => (closed2 ? this.closedFolders.delete(key) : this.closedFolders.add(key), this.render()) }, closed2 ? "▸" : "▾"),
         el("span", { className: "dot" }),
         toggle(folder.enabled, (on) => void this.change(sh, (items2) => items2.map((i) => isFolder(i) && i.id === folder.id ? { ...i, enabled: on } : i)), t(`Turn on ${folder.name}`, `${folder.name} 켜기`)),
         el("span", { className: "name", onclick: () => this.edit({ kind: "folder", place: sh.place, draft: structuredClone(folder), isNew: false }) }, `${folderIconText(folder.icon) ? `${folderIconText(folder.icon)} ` : ""}${folder.name}`),
@@ -38169,20 +40087,20 @@ textarea.small { min-height: 64px; resize: vertical; font: 12px/1.45 var(--d-mon
       this.dragRow(head, sh, folder.id, folder.id);
       const block = el("div", { className: "folder", style: `--folder:${folder.color || "var(--d-line)"}` }, head);
       if (this.menuFor === key) block.append(this.itemMenu(sh, folder.id, true));
-      if (!closed) block.append(el("div", { className: "inside" }, ...folder.scripts.map((g) => this.scriptRow(sh, g, folder)), folder.scripts.length ? null : el("div", { className: "note" }, t("Empty", "비어 있음"))));
+      if (!closed2) block.append(el("div", { className: "inside" }, ...folder.scripts.map((g) => this.scriptRow(sh, g, folder)), folder.scripts.length ? null : el("div", { className: "note" }, t("Empty", "비어 있음"))));
       return block;
     }
     scriptRow(sh, g, folder) {
       const s = this.settings.current;
-      const run = runKey(sh.place, g.id);
-      const running = this.host.status().running.has(run);
-      const bad = this.host.logOf(run).some((l) => l.kind === "error");
+      const run2 = runKey(sh.place, g.id);
+      const running = this.host.status().running.has(run2);
+      const bad = this.host.logOf(run2).some((l) => l.kind === "error");
       const key = `${placeKey(sh.place)}/${g.id}`;
       const selected = this.editing?.kind === "script" && placeKey(this.editing.place) === placeKey(sh.place) && this.editing.draft.id === g.id;
       const row = el(
         "div",
         { className: `item${selected ? " sel" : ""}`, draggable: true },
-        toggle(s.scriptSwitch[run] ?? g.enabled, (on) => void this.settings.set({ scriptSwitch: { ...s.scriptSwitch, [run]: on } }).then(() => this.render()), t(`Turn on ${g.name}`, `${g.name} 켜기`)),
+        toggle(s.scriptSwitch[run2] ?? g.enabled, (on) => void this.settings.set({ scriptSwitch: { ...s.scriptSwitch, [run2]: on } }).then(() => this.render()), t(`Turn on ${g.name}`, `${g.name} 켜기`)),
         el("span", { className: "name", role: "button", tabIndex: 0, onclick: () => this.edit({ kind: "script", place: sh.place, draft: structuredClone(g), isNew: false, folderId: folder?.id ?? null }) }, g.name),
         g.buttons.length ? el("span", { className: "badge", title: t("Buttons", "버튼") }, `▢ ${g.buttons.length}`) : null,
         running ? el("span", { className: "badge run" }, t("Running", "실행 중")) : null,
@@ -38222,6 +40140,15 @@ textarea.small { min-height: 64px; resize: vertical; font: 12px/1.45 var(--d-mon
         }
       }
       const { item: item2 } = _ScriptLibrary.take(sh.items, id);
+      if (item2 && !folder && !isFolder(item2)) {
+        const key = runKey(sh.place, id);
+        const at3 = placeOf(this.settings.current, key);
+        const put = (change) => void this.settings.set({ scriptPlaces: withPlace(this.settings.current, key, change) }).then(() => this.render());
+        box.append(
+          el("button", { className: `mini${at3.dock ? " on" : ""}`, "aria-pressed": String(at3.dock), onclick: () => put({ dock: !at3.dock }) }, `${t("On the Dock", "Dock에 놓기")}${at3.dock ? " ✓" : ""}`),
+          el("button", { className: `mini${at3.status ? " on" : ""}`, "aria-pressed": String(at3.status), onclick: () => put({ status: !at3.status }) }, `${t("On the Status tab", "상태창에 놓기")}${at3.status ? " ✓" : ""}`)
+        );
+      }
       if (item2) box.append(el("button", { className: "mini", onclick: () => this.exportItems([item2], item2.name) }, t("Export", "내보내기")));
       box.append(el("button", { className: "mini danger", onclick: () => void this.remove(sh, id) }, t("Delete", "지우기")));
       return box;
@@ -38289,15 +40216,15 @@ textarea.small { min-height: 64px; resize: vertical; font: 12px/1.45 var(--d-mon
       if (folderId && !isFolder(item2)) {
         return items2.map((i) => {
           if (!isFolder(i) || i.id !== folderId) return i;
-          const at3 = beforeId ? i.scripts.findIndex((g) => g.id === beforeId) : -1;
+          const at4 = beforeId ? i.scripts.findIndex((g) => g.id === beforeId) : -1;
           const scripts = [...i.scripts];
-          scripts.splice(at3 < 0 ? scripts.length : at3, 0, item2);
+          scripts.splice(at4 < 0 ? scripts.length : at4, 0, item2);
           return { ...i, scripts };
         });
       }
       const out = [...items2];
-      const at2 = beforeId ? out.findIndex((i) => i.id === beforeId) : -1;
-      out.splice(at2 < 0 ? out.length : at2, 0, item2);
+      const at3 = beforeId ? out.findIndex((i) => i.id === beforeId) : -1;
+      out.splice(at3 < 0 ? out.length : at3, 0, item2);
       return out;
     }
     moveTo(sh, id, folderId, beforeId) {
@@ -38382,7 +40309,7 @@ textarea.small { min-height: 64px; resize: vertical; font: 12px/1.45 var(--d-mon
     }
     scriptEditor(e) {
       const d2 = e.draft;
-      const run = runKey(e.place, d2.id);
+      const run2 = runKey(e.place, d2.id);
       const name = el("input", { value: d2.name, "aria-label": t("Script name", "스크립트 이름") });
       const gutter = el("div", { className: "gutter", "aria-hidden": "true" });
       const code = el("textarea", {
@@ -38392,7 +40319,7 @@ textarea.small { min-height: 64px; resize: vertical; font: 12px/1.45 var(--d-mon
         "aria-label": t("Script code", "스크립트 코드"),
         placeholder: "onMsg((m) => { … });"
       });
-      const numbers = () => {
+      const numbers2 = () => {
         const count = code.value.split("\n").length;
         gutter.replaceChildren(...Array.from({ length: count }, (_2, i) => el("div", { className: this.problem?.line === i + 1 ? "bad" : "" }, String(i + 1))));
         gutter.scrollTop = code.scrollTop;
@@ -38401,42 +40328,42 @@ textarea.small { min-height: 64px; resize: vertical; font: 12px/1.45 var(--d-mon
       code.addEventListener("scroll", () => gutter.scrollTop = code.scrollTop);
       code.addEventListener("input", () => {
         d2.code = code.value;
-        numbers();
+        numbers2();
         if (this.checkTimer) clearTimeout(this.checkTimer);
         this.checkTimer = setTimeout(() => {
           this.problem = checkScript(code.value);
           problem.className = this.problem ? "err" : "ok";
           problem.textContent = this.problemText();
-          numbers();
+          numbers2();
         }, 350);
       });
       code.addEventListener("keydown", (ev) => {
         if (ev.key !== "Tab" || ev.shiftKey) return;
         ev.preventDefault();
-        const at2 = code.selectionStart;
-        code.setRangeText("  ", at2, code.selectionEnd, "end");
+        const at3 = code.selectionStart;
+        code.setRangeText("  ", at3, code.selectionEnd, "end");
         code.dispatchEvent(new Event("input"));
       });
-      numbers();
+      numbers2();
       const buttons = el("textarea", { className: "small", spellcheck: false, value: d2.buttons.map((b2) => b2.name).join("\n"), "aria-label": t("Buttons, one per line", "버튼 (한 줄에 하나)") });
       const info = el("textarea", { className: "small", value: d2.info, "aria-label": t("Note", "설명") });
       const data = el("textarea", { className: "small", spellcheck: false, value: Object.keys(d2.data).length ? JSON.stringify(d2.data, null, 2) : "", "aria-label": t("Script variables (JSON)", "스크립트 변수 (JSON)"), placeholder: '{ "count": 0 }' });
-      const read3 = () => {
-        let parsed = {};
+      const read4 = () => {
+        let parsed2 = {};
         if (data.value.trim()) {
           try {
             const v = JSON.parse(data.value);
             if (!v || typeof v !== "object" || Array.isArray(v)) throw new Error("not an object");
-            parsed = v;
+            parsed2 = v;
           } catch {
             showToast(t("Script variables: not a JSON object.", "스크립트 변수: JSON 객체가 아님."), "warning");
             return null;
           }
         }
-        return { ...d2, name: name.value.trim() || t("Script", "스크립트"), code: code.value, info: info.value, data: parsed, buttons: normalizeButtons(buttons.value.split("\n").map((n) => ({ name: n, visible: true }))) };
+        return { ...d2, name: name.value.trim() || t("Script", "스크립트"), code: code.value, info: info.value, data: parsed2, buttons: normalizeButtons(buttons.value.split("\n").map((n) => ({ name: n, visible: true }))) };
       };
       const save2 = () => {
-        const next2 = read3();
+        const next2 = read4();
         const sh = this.shown.find((x2) => placeKey(x2.place) === placeKey(e.place));
         if (!next2 || !sh) return;
         void this.change(sh, (items2) => {
@@ -38468,7 +40395,7 @@ textarea.small { min-height: 64px; resize: vertical; font: 12px/1.45 var(--d-mon
         setting(t("Script variables", "스크립트 변수"), data, t('Starting values of getVars("script"), as JSON', 'getVars("script")의 처음 값(JSON)'), { stack: true }),
         el("div", { className: "row" }, el("button", { className: "primary", onclick: save2 }, t("Save", "저장")), el("button", { className: "ghost", onclick: () => (this.editing = null, this.render()) }, t("Close", "닫기")))
       );
-      if (!e.isNew) out.append(this.logBox(run));
+      if (!e.isNew) out.append(this.logBox(run2));
       return out;
     }
     problemText() {
@@ -38482,9 +40409,9 @@ textarea.small { min-height: 64px; resize: vertical; font: 12px/1.45 var(--d-mon
       if (bad && code && bad.offsetTop > code.clientHeight) code.scrollTop = bad.offsetTop - code.clientHeight / 2;
     }
     /** What the script wrote and its errors, newest last, with Restart and Clear. */
-    logBox(run) {
-      const lines = this.host.logOf(run);
-      const running = this.host.status().running.has(run);
+    logBox(run2) {
+      const lines = this.host.logOf(run2);
+      const running = this.host.status().running.has(run2);
       const box = el("div", { className: "log", role: "log" });
       if (!lines.length) box.append(el("span", { className: "note" }, running ? t("Nothing written yet.", "아직 기록 없음.") : t("Not running.", "실행 중 아님.")));
       for (const l of lines) {
@@ -38501,14 +40428,14 @@ textarea.small { min-height: 64px; resize: vertical; font: 12px/1.45 var(--d-mon
           el("b", {}, t("Log", "기록")),
           running ? el("span", { className: "badge run" }, t("Running", "실행 중")) : null,
           el("span", { style: "flex:1" }),
-          running ? el("button", { className: "mini", onclick: () => this.host.restart(run) }, t("Restart", "다시 시작")) : null,
-          el("button", { className: "mini ghost", onclick: () => this.host.clearLog(run) }, t("Clear", "지우기"))
+          running ? el("button", { className: "mini", onclick: () => this.host.restart(run2) }, t("Restart", "다시 시작")) : null,
+          el("button", { className: "mini ghost", onclick: () => this.host.clearLog(run2) }, t("Clear", "지우기"))
         ),
         box
       );
     }
     // ── files ──
-    /** Saves items as a Tavern Helper script file. */
+    /** Saves items as a SillyTavern script file. */
     exportItems(items2, name) {
       if (!items2.length) {
         showToast(t("Nothing to export.", "내보낼 것이 없음."), "warning");
@@ -38576,8 +40503,433 @@ textarea.small { min-height: 64px; resize: vertical; font: 12px/1.45 var(--d-mon
     }
   };
 
+  // src/ui/settings-parts.ts
+  var WRITER_LABELS = {
+    ai: () => t("The AI", "AI"),
+    fill: () => t("The AI, a helper model when it forgets", "AI, 빠지면 보조 모델"),
+    helper: () => t("A helper model", "보조 모델")
+  };
+  function offWhen(off, label) {
+    const input2 = label.querySelector("input");
+    if (input2) input2.disabled = off;
+    return label;
+  }
+  var SettingsParts = class {
+    constructor(settings) {
+      this.settings = settings;
+    }
+    /** SillyTavern cards' lorebook templates (main.ts sets it). */
+    templates = null;
+    /** Draws the tab these parts are in again. */
+    redraw = () => void 0;
+    /** The open chat's cards' templates (null: not read yet). */
+    ejs = null;
+    ejsReading = false;
+    /** The saved connections, read once the helper model is turned on (null: not read yet). */
+    connections = null;
+    connectionsRead = false;
+    timer = null;
+    renderSoon() {
+      if (this.timer) clearTimeout(this.timer);
+      this.timer = setTimeout(() => {
+        this.timer = null;
+        this.redraw();
+      }, 0);
+    }
+    render() {
+      this.redraw();
+    }
+    async save(patch) {
+      try {
+        await this.settings.set(patch);
+        return true;
+      } catch (e) {
+        showToast(t(`Could not save settings: ${e instanceof Error ? e.message : String(e)}`, `설정 저장 실패: ${e instanceof Error ? e.message : String(e)}`), "error");
+        return false;
+      }
+    }
+    /** Character assets in chat (the assets tab's top): tags, the expression sprite, pictures shown by words. */
+    assetsSection() {
+      const a = this.settings.current.assets;
+      const set = (patch) => void this.save({ assets: { ...this.settings.current.assets, ...patch } }).then((ok) => ok && this.renderSoon());
+      const expressions = el(
+        "select",
+        { "aria-label": t("Expression sprite", "표정 그림"), "data-key": "asset-expressions", onchange: (e) => set({ expressions: e.target.value }) },
+        el("option", { value: "off", selected: a.expressions === "off" }, t("Off", "끄기")),
+        el("option", { value: "above", selected: a.expressions === "above" }, t("Above the reply", "답변 위")),
+        el("option", { value: "below", selected: a.expressions === "below" }, t("Below the reply", "답변 아래"))
+      );
+      const width = el("input", {
+        type: "number",
+        className: "num",
+        min: String(ASSET_WIDTH.min),
+        max: String(ASSET_WIDTH.max),
+        step: "20",
+        value: String(a.width),
+        "aria-label": t("Picture width", "그림 너비"),
+        "data-key": "asset-width",
+        onchange: (e) => {
+          const input2 = e.target;
+          const w2 = Math.max(ASSET_WIDTH.min, Math.min(ASSET_WIDTH.max, Math.round(Number(input2.value)) || a.width));
+          input2.value = String(w2);
+          set({ width: w2 });
+        }
+      });
+      const tell = el(
+        "select",
+        { "aria-label": t("Tell the AI the names", "AI에게 이름 알려 주기"), "data-key": "asset-tell", disabled: !a.tags, onchange: (e) => set({ tell: e.target.value }) },
+        el("option", { value: "card", selected: a.tell === "card" }, t("In each card's lorebook", "카드 로어북에")),
+        el("option", { value: "chat", selected: a.tell === "chat" }, t("In this chat's lorebook", "채팅 로어북에")),
+        el("option", { value: "off", selected: a.tell === "off" }, t("Don't", "알려 주지 않기"))
+      );
+      const perReply = el("input", {
+        type: "number",
+        className: "num",
+        min: String(PER_REPLY.min),
+        max: String(PER_REPLY.max),
+        value: String(a.perReply),
+        disabled: !a.tags || a.tell === "off",
+        "aria-label": t("Most pictures per reply", "답변당 최대 그림 수"),
+        "data-key": "asset-per-reply",
+        onchange: (e) => {
+          const input2 = e.target;
+          const n = Math.max(PER_REPLY.min, Math.min(PER_REPLY.max, Math.round(Number(input2.value)) || a.perReply));
+          input2.value = String(n);
+          set({ perReply: n });
+        }
+      });
+      return section(
+        t("Character assets", "캐릭터 에셋"),
+        t("Pictures of the chat's characters (their Gallery and sprites) in replies", "채팅 캐릭터의 그림(갤러리·스프라이트)을 답변에 보여 줘요"),
+        [],
+        setting(
+          t("Picture tags", "그림 태그"),
+          toggle(a.tags, (v) => set({ tags: v }), t("Picture tags", "그림 태그"), "asset-tags"),
+          t(
+            "[img:name] or [img:person:name] in a reply becomes the picture, after its paragraph. Other cards' {{img::name}} and {{raw::name}} work too",
+            "답변의 [img:이름]·[img:인물:이름]이 그 문단 뒤에 그림으로 나와요. 다른 카드의 {{img::이름}}·{{raw::이름}}도 돼요"
+          )
+        ),
+        setting(
+          t("Tell the AI the names", "AI에게 이름 알려 주기"),
+          tell,
+          t(
+            `An always-on lorebook entry named "Credenza" lists the picture names. In a card's lorebook it travels with the card (only cards with assets get one); an entry you edit is left as it is`,
+            '"Credenza" 로어북 항목(항상 켜짐)에 그림 이름을 적어요. 카드 로어북에 두면 카드와 함께 내보내져요(에셋이 있는 카드만). 직접 고친 항목은 그대로 둬요'
+          )
+        ),
+        setting(t("Most pictures per reply", "답변당 최대 그림 수"), perReply, t("What the AI is asked; it may put fewer", "AI에게 부탁하는 수예요. 더 적게 넣을 수도 있어요")),
+        setting(
+          t("Expression sprite", "표정 그림"),
+          expressions,
+          t("The expression Marinara's Expression agent chose for the reply (the agent must be on)", "마리나라 표정 에이전트가 고른 표정 (에이전트를 켜야 해요)")
+        ),
+        setting(
+          t("Pictures by words", "단어로 보이는 그림"),
+          toggle(a.words, (v) => set({ words: v }), t("Pictures by words", "단어로 보이는 그림"), "asset-words"),
+          t("An asset with words shows under a reply that uses one of them, without the AI knowing", "단어를 달아 둔 에셋은 답변에 그 단어가 나오면 아래에 보여요. AI는 몰라도 돼요")
+        ),
+        setting(t("Picture width", "그림 너비"), width, t("The widest a picture shows; a click shows it full size", "그림의 최대 너비. 누르면 원래 크기로 보여요"))
+      );
+    }
+    /** Pesto (the Status tab's top): values a card's schema keeps, worked out from the replies and shown to the AI. */
+    storySection() {
+      const st2 = this.settings.current.story;
+      const set = (patch) => void this.save({ story: { ...this.settings.current.story, ...patch } }).then((ok) => ok && this.renderSoon());
+      const depth = el("input", {
+        type: "number",
+        className: "num",
+        min: String(STORY_DEPTH.min),
+        max: String(STORY_DEPTH.max),
+        value: String(st2.depth),
+        disabled: !st2.on,
+        "aria-label": t("Where the values go", "값을 넣을 위치"),
+        "data-key": "story-depth",
+        onchange: (e) => {
+          const input2 = e.target;
+          const n = Math.max(STORY_DEPTH.min, Math.min(STORY_DEPTH.max, Math.round(Number(input2.value))));
+          const value2 = Number.isFinite(n) ? n : st2.depth;
+          input2.value = String(value2);
+          set({ depth: value2 });
+        }
+      });
+      return section(
+        t("Pesto", "Pesto"),
+        t(
+          "For cards that bring a schema (lorebook entries pesto:schema, pesto:start, pesto:rules): Fornello keeps the story's values, the AI only reports what changed",
+          "스키마를 가진 카드용이에요(로어북 항목 pesto:schema, pesto:start, pesto:rules). 이야기의 값은 Fornello가 계산하고, AI는 바뀐 것만 알려요"
+        ),
+        [],
+        setting(
+          t("Pesto", "Pesto"),
+          toggle(st2.on, (v) => set({ on: v }), t("Pesto", "Pesto"), "story-on"),
+          t(
+            `Before each reply the values and how to report changes go into this chat's lorebook; the AI's change blocks are hidden by a Marinara regex script, "Fornello: Pesto blocks" (removed when this is turned off)`,
+            '답변마다 현재 값과 바꾸는 법을 채팅 로어북에 넣어요. AI가 쓴 변경 블록은 마리나라 정규식 "Fornello: Pesto blocks"로 숨겨요(끄면 지워져요)'
+          )
+        ),
+        setting(
+          t("Where the values go", "값을 넣을 위치"),
+          depth,
+          t("How many messages from the end of the chat (0: after the last one)", "채팅 끝에서 몇 번째 메시지 앞인지 (0: 마지막 메시지 뒤)")
+        ),
+        setting(
+          t("SillyTavern variable cards too", "실리태번 변수 카드도 읽기"),
+          offWhen(!st2.on, toggle(st2.others, (v) => set({ others: v }), t("SillyTavern variable cards too", "실리태번 변수 카드도 읽기"), "story-others")),
+          t(
+            'A card without pesto:schema that brings its starting values ("[InitVar]" lorebook entries, or <VariableInsert> tags in its first message): its values are read from them, and its own update tags count',
+            'pesto:schema가 없어도 시작값을 가진 카드(로어북 "[InitVar]" 항목, 또는 첫 메시지의 <VariableInsert> 태그)면 그 값으로 읽고, 카드 방식의 변경 태그도 반영해요'
+          )
+        ),
+        setting(
+          t("Who reports the changes", "변경을 쓰는 쪽"),
+          el(
+            "select",
+            { "aria-label": t("Who reports the changes", "변경을 쓰는 쪽"), "data-key": "story-writer", disabled: !st2.on, onchange: (e) => set({ writer: e.target.value }) },
+            ...STORY_WRITERS.map((w2) => el("option", { value: w2, selected: w2 === st2.writer }, WRITER_LABELS[w2]()))
+          ),
+          t(
+            `The AI ends each reply with a change block. With a helper model, a reply that has none is read by that model, which writes the block (one more call each time); "the helper model" doesn't ask the AI for blocks at all, so replies stay all story`,
+            'AI가 답장 끝에 변경 블록을 써요. 보조 모델을 고르면 블록 없는 답장을 그 모델이 읽고 블록을 써요(그때마다 호출 한 번 더). "보조 모델"은 AI에게 블록을 아예 부탁하지 않아서 답장이 이야기만으로 채워져요'
+          )
+        ),
+        st2.writer !== "ai" ? setting(t("Helper model", "보조 모델"), this.connectionPicker(st2, set), t("A cheap, quick connection is enough", "싸고 빠른 연결이면 충분해요")) : null,
+        setting(
+          t("Give the values to Marinara's prompts", "마리나라 프롬프트에 값 주기"),
+          offWhen(!st2.on, toggle(st2.vars, (v) => set({ vars: v }), t("Give the values to Marinara's prompts", "마리나라 프롬프트에 값 주기"), "story-vars")),
+          t(
+            `Before each reply the values become this chat's variables, named "story_" and their path ("story_hp"), so the card's prompts and lorebook entries can use {{getvar::story_hp}} and {{#if var:story_hp < 10}}…{{/if}}. The Pesto window shows each value's name`,
+            '답변마다 값을 이 채팅의 변수로 넣어요. 이름은 "story_"와 경로예요("story_hp"). 그래서 카드의 프롬프트·로어북에서 {{getvar::story_hp}}, {{#if var:story_hp < 10}}…{{/if}}처럼 쓸 수 있어요. 값마다 변수 이름은 Pesto 창에서 볼 수 있어요'
+          )
+        ),
+        setting(
+          t("Show in Marinara's tracker", "마리나라 트래커에 보이기"),
+          offWhen(!st2.on, toggle(st2.tracker, (v) => set({ tracker: v }), t("Show in Marinara's tracker", "마리나라 트래커에 보이기"), "story-tracker")),
+          t(
+            "The values also go in the tracker's World panel, as custom fields named by their paths, on the last reply (the tracker's other fields stay as they are)",
+            "값을 트래커의 월드 패널에도 경로 이름의 사용자 필드로 넣어요. 마지막 답장 기준이고, 트래커의 다른 필드는 그대로 둬요"
+          )
+        )
+      );
+    }
+    /** The helper model's connection: the chat's own, or one of the saved ones. */
+    connectionPicker(st2, set) {
+      if (!this.connectionsRead) {
+        this.connectionsRead = true;
+        void listConnections().then((list2) => this.connections = list2).catch((e) => {
+          console.warn("[Fornello] connections", e);
+          this.connections = [];
+        }).finally(() => this.renderSoon());
+      }
+      const list = this.connections ?? [];
+      const missing = st2.fillWith && this.connections && !list.some((c) => c.id === st2.fillWith);
+      return el(
+        "select",
+        { "aria-label": t("Helper model", "보조 모델"), "data-key": "story-fill-with", disabled: !st2.on, onchange: (e) => set({ fillWith: e.target.value }) },
+        el("option", { value: "", selected: !st2.fillWith }, t("This chat's connection", "이 채팅의 연결")),
+        ...list.map((c) => el("option", { value: c.id, selected: c.id === st2.fillWith }, c.name)),
+        missing ? el("option", { value: st2.fillWith, selected: true }, t("(a connection that is gone)", "(없어진 연결)")) : null,
+        !this.connections && st2.fillWith ? el("option", { value: st2.fillWith, selected: true }, t("Reading…", "읽는 중…")) : null
+      );
+    }
+    /** The open chat's cards' lorebook templates (the Status tab): converting them, putting them back, the wait. */
+    templatesSection() {
+      const service = this.templates;
+      const chatId = currentChatId();
+      if (!service || !chatId) return null;
+      if ((!this.ejs || this.ejs.chatId !== chatId) && !this.ejsReading) {
+        this.ejsReading = true;
+        void service.scan(chatId).then((entries2) => this.ejs = { chatId, entries: entries2 }).catch((e) => {
+          console.warn("[Fornello] templates", e);
+          this.ejs = { chatId, entries: [] };
+        }).finally(() => {
+          this.ejsReading = false;
+          this.renderSoon();
+        });
+      }
+      const ejs = this.ejs;
+      const entries = ejs?.chatId === chatId ? ejs.entries : null;
+      if (entries && !entries.length) return null;
+      const tpl = this.settings.current.templates;
+      const reread = () => {
+        this.ejs = null;
+        this.renderSoon();
+      };
+      const convert = async () => {
+        const run2 = (entries ?? []).filter((e) => e.mode === "run" && (!e.converted || !e.allowed));
+        const allowRun = run2.length > 0 && window.confirm(
+          t(
+            `${run2.length} of these templates are more than conditions: Fornello would run them (JavaScript, in a Worker cut off from the network, with the page commands' usual checks) before each reply of chats with this card. Run them? (Cancel converts only the conditions.)`,
+            `이 중 ${run2.length}개는 조건문 이상이라, 이 카드의 채팅에서 답장마다 Fornello가 실행해요(자바스크립트, 네트워크가 막힌 Worker, 페이지 명령은 평소 확인을 거쳐요). 실행할까요? (취소하면 조건문만 바꿔요.)`
+          )
+        );
+        try {
+          const done = await service.convert(chatId, allowRun);
+          showToast(t(`Converted: ${done.macro} as Marinara's conditions, ${done.run} to run.`, `변환했어요: 마리나라 조건문 ${done.macro}개, 실행 ${done.run}개.`), "info");
+        } catch (e) {
+          showToast(e instanceof Error ? e.message : String(e), "error");
+        }
+        reread();
+      };
+      const restore = async () => {
+        try {
+          const n = await service.restore(chatId);
+          showToast(t(`Put back: ${n} entries.`, `되돌렸어요: 항목 ${n}개.`), "info");
+        } catch (e) {
+          showToast(e instanceof Error ? e.message : String(e), "error");
+        }
+        reread();
+      };
+      const wait = el("input", {
+        type: "number",
+        className: "num",
+        min: String(TEMPLATE_WAIT.min),
+        max: String(TEMPLATE_WAIT.max),
+        value: String(tpl.wait),
+        "aria-label": t("Longest wait before a reply (seconds)", "답장 전 최대 대기(초)"),
+        "data-key": "templates-wait",
+        onchange: (e) => {
+          const input2 = e.target;
+          const n = Math.max(TEMPLATE_WAIT.min, Math.min(TEMPLATE_WAIT.max, Math.round(Number(input2.value)) || TEMPLATE_WAIT.min));
+          input2.value = String(n);
+          void this.save({ templates: { ...this.settings.current.templates, wait: n } });
+        }
+      });
+      const mode = (e) => e.mode === "macro" ? t("Marinara's conditions", "마리나라 조건문") : t("run by Fornello", "Fornello가 실행");
+      const list = (entries ?? []).map(
+        (e) => el("li", {}, `${e.name || e.id}: ${mode(e)}${e.converted ? t(" · converted", " · 변환됨") : ""}${e.converted && e.mode === "run" && !e.allowed ? t(" · not allowed to run", " · 실행 허락 안 됨") : ""}${!e.converted && e.why ? ` (${e.why})` : ""}`)
+      );
+      return section(
+        t("SillyTavern templates", "실리태번 템플릿"),
+        t(
+          "Lorebook entries of this chat's cards written with <% %> templates. Converting changes their text in place (their keys and place stay; the first text is kept to put back): conditions become Marinara's {{#if}}, the rest Fornello runs before each reply",
+          "이 채팅 카드의 로어북 중 <% %> 템플릿으로 쓴 항목이에요. 변환하면 항목 글만 바뀌어요(키·위치는 그대로, 원래 글은 되돌릴 수 있게 보관). 조건문은 마리나라 {{#if}}로, 나머지는 답장마다 Fornello가 실행해요"
+        ),
+        [
+          ...entries?.some((e) => !e.converted || e.mode === "run" && !e.allowed) ? [el("button", { className: "mini", "data-key": "templates-convert", onclick: () => void convert() }, t("Convert", "변환"))] : [],
+          ...entries?.some((e) => e.converted) ? [el("button", { className: "mini", "data-key": "templates-restore", onclick: () => void restore() }, t("Put back", "되돌리기"))] : []
+        ],
+        entries ? el("ul", { className: "note", style: "margin:0;padding-left:18px" }, ...list) : el("div", { className: "note" }, t("Reading…", "읽는 중…")),
+        setting(t("Longest wait before a reply", "답장 전 최대 대기"), wait, t("Seconds a reply may wait for the templates (and Fornello's other work before it); a template that calls the AI needs more", "템플릿(과 답장 전 Fornello의 다른 일)을 기다리는 최대 초예요. AI를 부르는 템플릿은 더 필요해요"))
+      );
+    }
+  };
+
+  // src/assets/dispensa-commands.ts
+  function addAssetCommands() {
+    let removers = [];
+    const add = () => {
+      for (const off of removers) off();
+      removers = [];
+      const register = window.__dispensa?.registerCommand;
+      if (typeof register !== "function") return;
+      removers = [
+        register({
+          name: "asset",
+          help: "The address of a picture of the chat's characters (Fornello's character assets): /asset [person=…] name",
+          from: "Fornello",
+          run: ({ text: text2, named }) => chatAssetUrl(text2, named.person || void 0)
+        }),
+        register({
+          name: "assets",
+          help: "The chat's characters' pictures as JSON: [{character, name, url, person?}]",
+          from: "Fornello",
+          run: async () => JSON.stringify(await chatAssetList())
+        })
+      ];
+    };
+    add();
+    window.addEventListener(DISPENSA_READY, add);
+    return () => {
+      window.removeEventListener(DISPENSA_READY, add);
+      for (const off of removers) off();
+      removers = [];
+    };
+  }
+
+  // src/host/import-hook.ts
+  var OURS3 = /\.(charx|zip|jpe?g)$/i;
+  var MARK = "fornelloImport";
+  function isImportInput(el2) {
+    if (!(el2 instanceof HTMLInputElement) || el2.type !== "file") return false;
+    return el2.dataset[MARK] === "1" || /\.charx\b/.test(el2.accept) && /\.marinara\b/.test(el2.accept);
+  }
+  function widen(input2) {
+    if (input2.dataset[MARK] === "1") return;
+    input2.dataset[MARK] = "1";
+    if (window.matchMedia?.("(pointer: coarse)").matches) input2.removeAttribute("accept");
+    else input2.accept = `${input2.accept},.zip,.jpg,.jpeg`;
+  }
+  async function importFiles(files) {
+    for (const file of files) {
+      showToast(t(`${file.name}: Fornello is bringing it in with its pictures…`, `${file.name}: Fornello가 그림까지 함께 가져오는 중…`), "info");
+      try {
+        const found = await readCardFile(file.name, new Uint8Array(await file.arrayBuffer()));
+        if (!found.card) {
+          showToast(t(`${file.name}: no character card found in it.`, `${file.name}: 캐릭터 카드를 찾지 못했어요.`), "warning");
+          continue;
+        }
+        const result = await importCardFile(found, file, null);
+        showToast(cardImportMessage(found.name, result), result.failed.length ? "warning" : "success");
+        if (result.failed.length) console.warn("[Fornello] card import", result.failed);
+      } catch (e) {
+        showToast(t(`${file.name}: not imported (${e instanceof Error ? e.message : e})`, `${file.name}: 가져오지 못했어요 (${e instanceof Error ? e.message : e})`), "warning");
+      }
+    }
+  }
+  function hookCharacterImport(settings) {
+    const on = () => settings.current.marinaraImport;
+    const scan = () => {
+      if (!on()) return;
+      for (const input2 of document.querySelectorAll('input[type="file"]')) if (isImportInput(input2)) widen(input2);
+    };
+    const stopWatch = onScreenChange(scan);
+    scan();
+    const onChange = (e) => {
+      const input2 = e.target;
+      if (!on() || !isImportInput(input2) || !input2.files?.length) return;
+      const files = [...input2.files];
+      const ours = files.filter((f) => OURS3.test(f.name));
+      if (!ours.length) return;
+      e.stopImmediatePropagation();
+      const rest = files.filter((f) => !ours.includes(f));
+      if (rest.length) {
+        const dt = new DataTransfer();
+        for (const f of rest) dt.items.add(f);
+        input2.files = dt.files;
+        input2.dispatchEvent(new Event("change", { bubbles: true }));
+      } else input2.value = "";
+      void importFiles(ours);
+    };
+    const onDrop = (e) => {
+      if (!on() || !e.dataTransfer?.files.length) return;
+      const input2 = [...document.querySelectorAll('input[type="file"]')].find(isImportInput);
+      const dialog = input2?.closest('[role="dialog"]');
+      if (!dialog || !(e.target instanceof Node) || !dialog.contains(e.target)) return;
+      const files = [...e.dataTransfer.files];
+      const ours = files.filter((f) => OURS3.test(f.name));
+      if (!ours.length) return;
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      const rest = files.filter((f) => !ours.includes(f));
+      if (rest.length) {
+        const dt = new DataTransfer();
+        for (const f of rest) dt.items.add(f);
+        e.target.dispatchEvent(new DragEvent("drop", { bubbles: true, cancelable: true, dataTransfer: dt }));
+      }
+      void importFiles(ours);
+    };
+    document.addEventListener("change", onChange, true);
+    document.addEventListener("drop", onDrop, true);
+    return () => {
+      stopWatch();
+      document.removeEventListener("change", onChange, true);
+      document.removeEventListener("drop", onDrop, true);
+    };
+  }
+
   // src/ui/script-ask.ts
-  var STYLE6 = `
+  var STYLE8 = `
 ${THEME_TOKENS}
 :host { position: fixed; inset: 0; z-index: 2147482600; }
 * { box-sizing: border-box; }
@@ -38636,22 +40988,22 @@ button.primary { border-color: var(--d-btn-border-active); color: var(--d-btn-te
       host.id = "fornello-script-ask";
       const root2 = host.attachShadow({ mode: "open" });
       const style = document.createElement("style");
-      style.textContent = STYLE6;
-      const button = (label, run, className = "") => {
+      style.textContent = STYLE8;
+      const button = (label, run2, className = "") => {
         const b2 = document.createElement("button");
         b2.type = "button";
         b2.textContent = label;
         if (className) b2.className = className;
         b2.addEventListener("click", () => {
           this.done();
-          run();
+          run2();
         });
         return b2;
       };
       const title = document.createElement("h2");
-      title.textContent = ask.chat ? t("This chat has scripts", "이 채팅에 스크립트가 있어요") : t(`“${ask.name}” has scripts`, `“${ask.name}” 카드에 스크립트가 있어요`);
+      title.textContent = ask.title ?? (ask.chat ? t("This chat has scripts", "이 채팅에 스크립트가 있어요") : t(`“${ask.name}” has scripts`, `“${ask.name}” 카드에 스크립트가 있어요`));
       const note = document.createElement("p");
-      note.textContent = t(`Run ${ask.count} script(s) while this chat is open?`, `이 채팅이 열려 있는 동안 스크립트 ${ask.count}개를 실행할까요?`);
+      note.textContent = ask.note ?? t(`Run ${ask.count} script(s) while this chat is open?`, `이 채팅이 열려 있는 동안 스크립트 ${ask.count}개를 실행할까요?`);
       const row = document.createElement("div");
       row.className = "row";
       const never = ask.chat ? t("Don't ask again for this chat", "이 채팅은 다시 묻지 않기") : t("Don't ask again for this card", "이 카드는 다시 묻지 않기");
@@ -38677,12 +41029,65 @@ button.primary { border-color: var(--d-btn-border-active); color: var(--d-btn-te
     }
   };
 
+  // src/ui/script-buttons.ts
+  var DOCK_ID = "fornello";
+  var ScriptButtons = class {
+    constructor(settings) {
+      this.settings = settings;
+    }
+    list = [];
+    onDispensa = () => this.toDock();
+    /** The Status tab's buttons changed. */
+    onChange = null;
+    start() {
+      window.addEventListener(DISPENSA_READY, this.onDispensa);
+    }
+    stop() {
+      window.removeEventListener(DISPENSA_READY, this.onDispensa);
+      this.list = [];
+      this.toDock();
+    }
+    set(list) {
+      this.list = list;
+      this.refresh();
+    }
+    /** Where buttons go changed (or what runs): the Dock and the Status tab again. */
+    refresh() {
+      this.toDock();
+      this.onChange?.();
+    }
+    /** The buttons put on the Status tab. */
+    onStatus() {
+      return this.list.filter((b2) => placeOf(this.settings.current, b2.key).status);
+    }
+    toDock() {
+      const dispensa = window.__dispensa;
+      if (typeof dispensa?.setDockGroup !== "function") return;
+      const shown2 = this.list.filter((b2) => placeOf(this.settings.current, b2.key).dock);
+      const group = shown2.length ? {
+        name: t("Scripts (Fornello)", "스크립트 (Fornello)"),
+        icon: "🔥",
+        items: shown2.map((b2) => ({ label: b2.label, group: b2.script, title: t(`Script: ${b2.script}`, `스크립트: ${b2.script}`), run: b2.press })),
+        // off the Dock in Dispensa's settings: these scripts' "On the Dock" goes off
+        remove: () => {
+          let places = this.settings.current.scriptPlaces;
+          for (const key of new Set(shown2.map((b2) => b2.key))) places = withPlace({ ...this.settings.current, scriptPlaces: places }, key, { dock: false });
+          void this.settings.set({ scriptPlaces: places, legacyDock: false });
+        }
+      } : null;
+      try {
+        dispensa.setDockGroup(DOCK_ID, group);
+      } catch {
+      }
+    }
+  };
+
   // src/shared/top-menu.ts
   var registry = () => window.__figcakeMenu ??= { version: 1, sources: [] };
   function addMenuSource(source) {
     const list = registry().sources;
-    const at2 = list.findIndex((s) => s.id === source.id);
-    if (at2 >= 0) list.splice(at2, 1);
+    const at3 = list.findIndex((s) => s.id === source.id);
+    if (at3 >= 0) list.splice(at3, 1);
     list.push(source);
     list.sort((a, b2) => a.order - b2.order);
     return () => {
@@ -38702,12 +41107,7 @@ button.primary { border-color: var(--d-btn-border-active); color: var(--d-btn-te
   }
   var MENU_ICONS = {
     cake: svg2('<path d="M16 13H3"/><path d="M16 17H3"/><path d="m7.2 7.9-3.388 2.5A2 2 0 0 0 3 12.01V20a1 1 0 0 0 1 1h16a1 1 0 0 0 1-1v-8.654c0-2-2.44-6.026-6.44-8.026a1 1 0 0 0-1.082.057L10.4 5.6"/><circle cx="9" cy="7" r="2"/>'),
-    settings: svg2('<path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/>'),
-    star: svg2('<path d="M11.525 2.295a.53.53 0 0 1 .95 0l2.31 4.679a2.123 2.123 0 0 0 1.595 1.16l5.166.756a.53.53 0 0 1 .294.904l-3.736 3.638a2.123 2.123 0 0 0-.611 1.878l.882 5.14a.53.53 0 0 1-.771.56l-4.618-2.428a2.122 2.122 0 0 0-1.973 0L6.396 21.01a.53.53 0 0 1-.77-.56l.881-5.139a2.122 2.122 0 0 0-.611-1.879L2.16 9.795a.53.53 0 0 1 .294-.906l5.165-.755a2.122 2.122 0 0 0 1.597-1.16z"/>'),
-    flame: svg2('<path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 0 0 2.5 2.5z"/>'),
-    scroll: svg2('<path d="M15 12h-5"/><path d="M15 8h-5"/><path d="M19 17V5a2 2 0 0 0-2-2H4"/><path d="M8 21h12a2 2 0 0 0 2-2v-1a1 1 0 0 0-1-1H11a1 1 0 0 0-1 1v1a2 2 0 1 1-4 0V5a2 2 0 1 0-4 0v2a1 1 0 0 0 1 1h3"/>'),
-    play: svg2('<polygon points="6 3 20 12 6 21 6 3"/>'),
-    panel: svg2('<rect width="18" height="18" x="3" y="3" rx="2"/><path d="M3 9h18"/><path d="M9 21V9"/>')
+    flame: svg2('<path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 0 0 2.5 2.5z"/>')
   };
   function svg2(paths) {
     return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${paths}</svg>`;
@@ -38717,7 +41117,7 @@ button.primary { border-color: var(--d-btn-border-active); color: var(--d-btn-te
   var BUTTON = "figcake-menu";
   var POP = "figcake-menu-pop";
   var STYLE_ID = "figcake-menu-style";
-  var STYLE7 = `
+  var STYLE9 = `
 #${BUTTON} { display: inline-flex; align-items: center; justify-content: center; width: 2rem; height: 2rem; padding: 0; border: 0;
   border-radius: var(--radius, .75rem); background: none; color: var(--muted-foreground); cursor: pointer; transition: color .2s, background-color .2s; }
 #${BUTTON} svg { width: .875rem; height: .875rem; }
@@ -38772,11 +41172,11 @@ button.primary { border-color: var(--d-btn-border-active); color: var(--d-btn-te
         return;
       }
       if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(e.key) || !entries.length) return;
-      const at2 = entries.indexOf(document.activeElement);
-      if (at2 < 0 && document.activeElement !== btn) return;
+      const at3 = entries.indexOf(document.activeElement);
+      if (at3 < 0 && document.activeElement !== btn) return;
       e.preventDefault();
       const last = entries.length - 1;
-      const next2 = e.key === "Home" ? 0 : e.key === "End" ? last : e.key === "ArrowDown" ? at2 < 0 || at2 === last ? 0 : at2 + 1 : at2 <= 0 ? last : at2 - 1;
+      const next2 = e.key === "Home" ? 0 : e.key === "End" ? last : e.key === "ArrowDown" ? at3 < 0 || at3 === last ? 0 : at3 + 1 : at3 <= 0 ? last : at3 - 1;
       entries[next2].focus();
     };
     let group;
@@ -38850,7 +41250,7 @@ button.primary { border-color: var(--d-btn-border-active); color: var(--d-btn-te
       if (!document.getElementById(STYLE_ID)) {
         const style = document.createElement("style");
         style.id = STYLE_ID;
-        style.textContent = STYLE7;
+        style.textContent = STYLE9;
         document.head.append(style);
       }
       dress(own);
@@ -38876,49 +41276,6 @@ button.primary { border-color: var(--d-btn-border-active); color: var(--d-btn-te
     };
   }
 
-  // src/ui/script-buttons.ts
-  var DOCK_ID = "fornello";
-  function dockShows() {
-    const dispensa = window.__dispensa;
-    if (typeof dispensa?.setDockGroup !== "function") return false;
-    if (typeof dispensa.dockShown !== "function") return true;
-    try {
-      return dispensa.dockShown() !== false;
-    } catch {
-      return true;
-    }
-  }
-  var ScriptButtons = class {
-    list = [];
-    onDispensa = () => this.toDock();
-    start() {
-      window.addEventListener(DISPENSA_READY, this.onDispensa);
-    }
-    stop() {
-      window.removeEventListener(DISPENSA_READY, this.onDispensa);
-      this.list = [];
-      this.toDock();
-    }
-    set(list) {
-      this.list = list;
-      this.toDock();
-    }
-    /** The buttons as top-bar menu entries, when Dispensa's Dock does not show them. */
-    menuItems() {
-      if (dockShows()) return [];
-      return this.list.map((b2) => ({ icon: MENU_ICONS.play, label: b2.label, group: t(`Script: ${b2.script}`, `스크립트: ${b2.script}`), run: b2.press }));
-    }
-    toDock() {
-      const dispensa = window.__dispensa;
-      if (typeof dispensa?.setDockGroup !== "function") return;
-      const group = this.list.length ? { name: t("Scripts (Fornello)", "스크립트 (Fornello)"), icon: "🔥", items: this.list.map((b2) => ({ label: b2.label, group: b2.script, title: t(`Script: ${b2.script}`, `스크립트: ${b2.script}`), run: b2.press })) } : null;
-      try {
-        dispensa.setDockGroup(DOCK_ID, group);
-      } catch {
-      }
-    }
-  };
-
   // src/services.ts
   function startServices() {
     const stops = [startChatStore(), startSharedVars(), startPageStorage(), startGenerationHold(), startInjections()];
@@ -38936,8 +41293,4237 @@ button.primary { border-color: var(--d-btn-border-active); color: var(--d-btn-te
       forgetStylesheets();
       forgetModules();
       forgetColors();
+      forgetRuleHashes();
+      forgetPageAssets();
+      forgetPictureRegex();
     };
   }
+
+  // src/host/tracker-view.ts
+  function canShowTracker() {
+    return globalThis.__MARINARA_HOST__?.version === 1;
+  }
+  function showTracker(chatId, state2) {
+    const host = globalThis.__MARINARA_HOST__;
+    if (host?.version !== 1) return false;
+    try {
+      if (host.stores?.chat?.getState().activeChatId !== chatId) return false;
+      const set = host.stores?.gameState?.getState().setGameState;
+      if (typeof set !== "function") return false;
+      set(state2);
+      return true;
+    } catch (e) {
+      console.warn("[Fornello] tracker on screen", e);
+      return false;
+    }
+  }
+
+  // src/state/expr.ts
+  var ExprError = class extends Error {
+  };
+  var WORD_OPS = { and: "&&", or: "||", not: "!", in: "in" };
+  var OPS = ["**", "==", "!=", "<=", ">=", "&&", "||", "===", "!==", "+", "-", "*", "/", "%", "<", ">", "!", "?", ":", "(", ")", "[", "]", ",", "."];
+  function tokenize(src) {
+    const out = [];
+    let i = 0;
+    while (i < src.length) {
+      const c = src[i];
+      if (/\s/.test(c)) {
+        i++;
+        continue;
+      }
+      const at3 = i;
+      const num2 = /^(?:\d+(?:\.\d+)?|\.\d+)(?:[eE][-+]?\d+)?/.exec(src.slice(i));
+      if (num2) {
+        out.push({ t: "num", v: num2[0], at: at3 });
+        i += num2[0].length;
+        continue;
+      }
+      if (c === '"' || c === "'") {
+        let j = i + 1;
+        let text2 = "";
+        while (j < src.length && src[j] !== c) {
+          if (src[j] === "\\" && j + 1 < src.length) {
+            const e = src[++j];
+            text2 += e === "n" ? "\n" : e === "t" ? "	" : e;
+          } else text2 += src[j];
+          j++;
+        }
+        if (j >= src.length) throw new ExprError(`a quote is not closed in "${src}"`);
+        out.push({ t: "str", v: text2, at: at3 });
+        i = j + 1;
+        continue;
+      }
+      const word = /^[\p{L}_$][\p{L}\p{N}_$]*/u.exec(src.slice(i));
+      if (word) {
+        const op2 = WORD_OPS[word[0]];
+        out.push(op2 ? { t: "op", v: op2, at: at3 } : { t: "id", v: word[0], at: at3 });
+        i += word[0].length;
+        continue;
+      }
+      const op = OPS.filter((o2) => src.startsWith(o2, i)).sort((a, b2) => b2.length - a.length)[0];
+      if (!op) throw new ExprError(`"${c}" is not understood in "${src}"`);
+      out.push({ t: "op", v: op === "===" ? "==" : op === "!==" ? "!=" : op, at: at3 });
+      i += op.length;
+    }
+    return out;
+  }
+  var BINARY = { "||": 2, "&&": 3, "==": 4, "!=": 4, "<": 5, "<=": 5, ">": 5, ">=": 5, in: 5, "+": 6, "-": 6, "*": 7, "/": 7, "%": 7, "**": 8 };
+  var Parser = class {
+    constructor(tokens2, src) {
+      this.tokens = tokens2;
+      this.src = src;
+    }
+    i = 0;
+    peek(v) {
+      const t2 = this.tokens[this.i];
+      return v === void 0 || t2 && t2.t === "op" && t2.v === v ? t2 : void 0;
+    }
+    expect(v) {
+      if (!this.peek(v)) throw new ExprError(`expected "${v}" in "${this.src}"`);
+      this.i++;
+    }
+    whole() {
+      const node = this.expr();
+      if (this.i < this.tokens.length) throw new ExprError(`unexpected "${this.tokens[this.i].v}" in "${this.src}"`);
+      return node;
+    }
+    expr() {
+      const c = this.binary(1);
+      if (!this.peek("?")) return c;
+      this.i++;
+      const a = this.expr();
+      this.expect(":");
+      return { k: "cond", c, a, b: this.expr() };
+    }
+    binary(min) {
+      let left = this.unary();
+      for (; ; ) {
+        const t2 = this.tokens[this.i];
+        const power = t2?.t === "op" ? BINARY[t2.v] : void 0;
+        if (power === void 0 || power < min) return left;
+        this.i++;
+        const right = this.binary(t2.v === "**" ? power : power + 1);
+        left = { k: "bin", op: t2.v, a: left, b: right };
+      }
+    }
+    unary() {
+      const t2 = this.peek();
+      if (t2?.t === "op" && (t2.v === "!" || t2.v === "-" || t2.v === "+")) {
+        this.i++;
+        return { k: "un", op: t2.v, a: this.unary() };
+      }
+      return this.postfix(this.primary());
+    }
+    primary() {
+      const t2 = this.tokens[this.i++];
+      if (!t2) throw new ExprError(`"${this.src}" ends too soon`);
+      if (t2.t === "num") return { k: "lit", v: Number(t2.v) };
+      if (t2.t === "str") return { k: "lit", v: t2.v };
+      if (t2.t === "id") {
+        if (t2.v === "true" || t2.v === "false") return { k: "lit", v: t2.v === "true" };
+        if (t2.v === "null") return { k: "lit", v: null };
+        if (this.peek("(")) {
+          if (!Object.hasOwn(FUNCTIONS, t2.v)) throw new ExprError(`there is no function "${t2.v}"`);
+          this.i++;
+          return { k: "call", fn: t2.v, args: this.items(")") };
+        }
+        return { k: "id", name: t2.v };
+      }
+      if (t2.v === "(") {
+        const inner = this.expr();
+        this.expect(")");
+        return inner;
+      }
+      if (t2.v === "[") return { k: "list", items: this.items("]") };
+      throw new ExprError(`unexpected "${t2.v}" in "${this.src}"`);
+    }
+    items(close) {
+      const out = [];
+      while (!this.peek(close)) {
+        out.push(this.expr());
+        if (this.peek(",")) this.i++;
+        else if (!this.peek(close)) throw new ExprError(`expected "," or "${close}" in "${this.src}"`);
+      }
+      this.i++;
+      return out;
+    }
+    postfix(node) {
+      for (; ; ) {
+        if (this.peek(".")) {
+          this.i++;
+          const t2 = this.tokens[this.i++];
+          if (!t2 || t2.t !== "id" && t2.t !== "num" && !(t2.t === "op" && t2.v === "in")) throw new ExprError(`a name is missing after "." in "${this.src}"`);
+          node = { k: "get", obj: node, key: { k: "lit", v: t2.t === "op" ? "in" : t2.v } };
+        } else if (this.peek("[")) {
+          this.i++;
+          const key = this.expr();
+          this.expect("]");
+          node = { k: "get", obj: node, key };
+        } else return node;
+      }
+    }
+  };
+  var parsed = /* @__PURE__ */ new Map();
+  function parseExpr(src) {
+    let node = parsed.get(src);
+    if (!node) {
+      node = new Parser(tokenize(src), src).whole();
+      if (parsed.size > 2e3) parsed.clear();
+      parsed.set(src, node);
+    }
+    return node;
+  }
+  function evaluate2(src, scope) {
+    return run(parseExpr(src), scope);
+  }
+  function exprProblem(src) {
+    try {
+      parseExpr(src);
+      return "";
+    } catch (e) {
+      return e instanceof Error ? e.message : String(e);
+    }
+  }
+  var BLOCKED = /* @__PURE__ */ new Set(["__proto__", "constructor", "prototype"]);
+  function member(obj3, key) {
+    const name = String(key);
+    if (BLOCKED.has(name)) throw new ExprError(`"${name}" can't be read`);
+    if (Array.isArray(obj3) || typeof obj3 === "string") {
+      if (name === "length") return obj3.length;
+      if (!/^-?\d+$/.test(name)) return null;
+      const i = Number(name);
+      return obj3[i < 0 ? obj3.length + i : i] ?? null;
+    }
+    if (obj3 && typeof obj3 === "object") return Object.hasOwn(obj3, name) ? obj3[name] : null;
+    return null;
+  }
+  var num = (v, what) => {
+    if (typeof v === "number") return v;
+    if (typeof v === "boolean") return v ? 1 : 0;
+    if (v === null || v === void 0) return 0;
+    if (typeof v === "string" && v.trim() !== "" && !Number.isNaN(Number(v))) return Number(v);
+    throw new ExprError(`${what} needs a number, not ${JSON.stringify(v)}`);
+  };
+  function same2(a, b2) {
+    if (a === b2) return true;
+    if (a === null || a === void 0 || b2 === null || b2 === void 0) return (a ?? null) === (b2 ?? null);
+    if (typeof a === "number" && typeof b2 === "string") return b2.trim() !== "" && Number(b2) === a;
+    if (typeof a === "string" && typeof b2 === "number") return same2(b2, a);
+    if (typeof a === "object" && typeof b2 === "object") return JSON.stringify(a) === JSON.stringify(b2);
+    return false;
+  }
+  function contains(where, what) {
+    if (Array.isArray(where)) return where.some((x2) => same2(x2, what));
+    if (typeof where === "string") return where.includes(String(what));
+    if (where && typeof where === "object") return Object.hasOwn(where, String(what));
+    return false;
+  }
+  function run(node, scope) {
+    switch (node.k) {
+      case "lit":
+        return node.v;
+      case "id":
+        return scope.name(node.name);
+      case "get":
+        return member(run(node.obj, scope), run(node.key, scope));
+      case "list":
+        return node.items.map((n) => run(n, scope));
+      case "cond":
+        return run(node.c, scope) ? run(node.a, scope) : run(node.b, scope);
+      case "call":
+        return FUNCTIONS[node.fn](
+          node.args.map((n) => run(n, scope)),
+          scope
+        );
+      case "un": {
+        const a = run(node.a, scope);
+        if (node.op === "!") return !a;
+        return node.op === "-" ? -num(a, "-") : num(a, "+");
+      }
+      case "bin": {
+        if (node.op === "&&") return run(node.a, scope) && run(node.b, scope);
+        if (node.op === "||") return run(node.a, scope) || run(node.b, scope);
+        const a = run(node.a, scope);
+        const b2 = run(node.b, scope);
+        switch (node.op) {
+          case "==":
+            return same2(a, b2);
+          case "!=":
+            return !same2(a, b2);
+          case "in":
+            return contains(b2, a);
+          case "+":
+            if (typeof a === "string" || typeof b2 === "string") return `${a ?? ""}${b2 ?? ""}`;
+            if (Array.isArray(a) && Array.isArray(b2)) return [...a, ...b2];
+            return num(a, "+") + num(b2, "+");
+          case "<":
+          case "<=":
+          case ">":
+          case ">=": {
+            const [x3, y3] = typeof a === "string" && typeof b2 === "string" ? [a, b2] : [num(a, node.op), num(b2, node.op)];
+            return node.op === "<" ? x3 < y3 : node.op === "<=" ? x3 <= y3 : node.op === ">" ? x3 > y3 : x3 >= y3;
+          }
+        }
+        const x2 = num(a, node.op);
+        const y2 = num(b2, node.op);
+        if ((node.op === "/" || node.op === "%") && y2 === 0) throw new ExprError(`"${node.op}" by zero`);
+        return node.op === "-" ? x2 - y2 : node.op === "*" ? x2 * y2 : node.op === "/" ? x2 / y2 : node.op === "%" ? x2 % y2 : x2 ** y2;
+      }
+    }
+  }
+  function rollDice(spec, random) {
+    const m2 = /^\s*(\d*)\s*d\s*(\d+)\s*(?:([+-])\s*(\d+))?\s*$/i.exec(spec);
+    if (!m2) throw new ExprError(`"${spec}" is not dice like "2d6+1"`);
+    const count = m2[1] ? Number(m2[1]) : 1;
+    const sides = Number(m2[2]);
+    if (count < 1 || count > 100 || sides < 1 || sides > 1e4) throw new ExprError(`"${spec}": 1 to 100 dice of 1 to 10000 sides`);
+    let total = 0;
+    for (let i = 0; i < count; i++) total += 1 + Math.floor(random() * sides);
+    return total + (m2[3] ? (m2[3] === "-" ? -1 : 1) * Number(m2[4]) : 0);
+  }
+  var numbers = (args, what) => (args.length === 1 && Array.isArray(args[0]) ? args[0] : args).map((v) => num(v, what));
+  var FUNCTIONS = Object.assign(/* @__PURE__ */ Object.create(null), {
+    min: (a) => Math.min(...numbers(a, "min")),
+    max: (a) => Math.max(...numbers(a, "max")),
+    sum: (a) => numbers(a, "sum").reduce((s, x2) => s + x2, 0),
+    clamp: (a) => Math.min(Math.max(num(a[0], "clamp"), num(a[1], "clamp")), num(a[2], "clamp")),
+    round: (a) => {
+      const f = 10 ** num(a[1] ?? 0, "round");
+      return Math.round(num(a[0], "round") * f) / f;
+    },
+    floor: (a) => Math.floor(num(a[0], "floor")),
+    ceil: (a) => Math.ceil(num(a[0], "ceil")),
+    abs: (a) => Math.abs(num(a[0], "abs")),
+    len: (a) => Array.isArray(a[0]) || typeof a[0] === "string" ? a[0].length : a[0] && typeof a[0] === "object" ? Object.keys(a[0]).length : 0,
+    has: (a) => contains(a[0], a[1]),
+    keys: (a) => a[0] && typeof a[0] === "object" && !Array.isArray(a[0]) ? Object.keys(a[0]) : [],
+    num: (a) => num(a[0], "num"),
+    int: (a) => Math.trunc(num(a[0], "int")),
+    str: (a) => a[0] === null || a[0] === void 0 ? "" : typeof a[0] === "object" ? JSON.stringify(a[0]) : String(a[0]),
+    lower: (a) => String(a[0] ?? "").toLowerCase(),
+    upper: (a) => String(a[0] ?? "").toUpperCase(),
+    roll: (a, s) => rollDice(String(a[0] ?? "d6"), () => s.random()),
+    chance: (a, s) => s.random() * 100 < num(a[0], "chance"),
+    pick: (a, s) => {
+      const list = a.length === 1 && Array.isArray(a[0]) ? a[0] : a;
+      return list.length ? list[Math.floor(s.random() * list.length)] : null;
+    }
+  });
+
+  // src/state/locked-worker.ts
+  var LockedWorker = class {
+    constructor(source) {
+      this.source = source;
+    }
+    worker = null;
+    url = null;
+    next = 0;
+    waiting = /* @__PURE__ */ new Map();
+    broken = "";
+    /** It has answered once: an error after that is the code failing later (a timer), not a script that can't load. */
+    answered = false;
+    start() {
+      if (this.worker) return this.worker;
+      this.url ??= URL.createObjectURL(new Blob([this.source()], { type: "text/javascript" }));
+      const worker = new Worker(this.url);
+      worker.onmessage = (e) => {
+        const d2 = e.data ?? {};
+        if (typeof d2.call === "string" && typeof d2.callId === "number") {
+          const callId = d2.callId;
+          const call = [...this.waiting.values()].at(-1)?.call;
+          if (!call) return worker.postMessage({ callId, error: "nothing may be asked now" });
+          void call(d2.call, Array.isArray(d2.args) ? d2.args : []).then((result) => worker.postMessage({ callId, result: result === void 0 ? null : JSON.parse(JSON.stringify(result)) })).catch((err) => worker.postMessage({ callId, error: err instanceof Error ? err.message : String(err) }));
+          return;
+        }
+        const run2 = typeof d2.id === "number" ? this.waiting.get(d2.id) : void 0;
+        if (!run2) return;
+        this.answered = true;
+        this.waiting.delete(d2.id);
+        run2.done(typeof d2.error === "string" ? { ok: false, error: d2.error } : { ok: true, data: d2 });
+      };
+      worker.onerror = (e) => {
+        e.preventDefault();
+        if (this.answered) {
+          console.warn("[Fornello] card code:", e.message);
+          return;
+        }
+        this.broken = e.message || "the code has an error";
+        for (const run2 of this.waiting.values()) run2.done({ ok: false, error: this.broken });
+        this.waiting.clear();
+      };
+      this.worker = worker;
+      return worker;
+    }
+    /** Sends `body` (with an id) and waits for the answer, at most `timeMs`. */
+    request(body, timeMs, call) {
+      if (this.broken) return Promise.resolve({ ok: false, error: this.broken });
+      let worker;
+      try {
+        worker = this.start();
+      } catch (e) {
+        this.broken = `Workers can't start here (${e instanceof Error ? e.message : e})`;
+        return Promise.resolve({ ok: false, error: this.broken });
+      }
+      const id = this.next++;
+      return new Promise((resolve) => {
+        const timer = setTimeout(() => {
+          if (!this.waiting.delete(id)) return;
+          this.stop();
+          resolve({ ok: false, error: timeMs >= 2e3 ? `took longer than ${Math.round(timeMs / 1e3)} s` : `took longer than ${timeMs} ms` });
+        }, timeMs);
+        this.waiting.set(id, {
+          done: (a) => {
+            clearTimeout(timer);
+            resolve(a);
+          },
+          ...call ? { call } : {}
+        });
+        worker.postMessage({ ...JSON.parse(JSON.stringify(body)), id });
+      });
+    }
+    stop() {
+      this.worker?.terminate();
+      this.worker = null;
+      this.answered = false;
+      for (const run2 of this.waiting.values()) run2.done({ ok: false, error: "stopped" });
+      this.waiting.clear();
+    }
+    dispose() {
+      this.stop();
+      if (this.url) URL.revokeObjectURL(this.url);
+      this.url = null;
+    }
+  };
+
+  // src/state/code.ts
+  var KEEP_ANSWERS = 2e3;
+  var CODE_TIME = 1e3;
+  var SHUT = ["fetch", "XMLHttpRequest", "WebSocket", "EventSource", "importScripts", "Worker", "SharedWorker", "indexedDB", "caches", "BroadcastChannel", "WebTransport", "navigator", "FileReaderSync", "WebAssembly", "Notification", "WebSocketStream"];
+  function lockSource() {
+    return `(() => {
+  const names = ${JSON.stringify(SHUT)};
+  for (let p = self; p; p = Object.getPrototypeOf(p)) for (const n of names) { try { Object.defineProperty(p, n, { value: undefined, configurable: false, writable: false }); } catch (e) {} }
+})();`;
+  }
+  var cardScript = (code) => code.replace(/^\s*export\s+(?=(?:async\s+)?function|const|let|var|class)/gm, "");
+  function workerSource(code) {
+    return `"use strict";
+${lockSource()}
+const __answer = self.postMessage.bind(self);
+${cardScript(code)}
+;self.onmessage = async (e) => {
+  const { id, input } = e.data || {};
+  try {
+    const out = typeof onReply === "function" ? await onReply(input) : null;
+    __answer({ id, out: out === undefined ? null : JSON.parse(JSON.stringify(out)) });
+  } catch (err) {
+    __answer({ id, error: String(err && err.message || err) });
+  }
+};`;
+  }
+  function codeOutput(out) {
+    if (!out || typeof out !== "object") return { changes: null, effects: [] };
+    const { effects, ...changes } = out;
+    const list = [];
+    for (const e of Array.isArray(effects) ? effects : []) {
+      if (e && typeof e === "object" && typeof e.cmd === "string") {
+        const args = e.args;
+        list.push({ cmd: e.cmd, args: Array.isArray(args) ? args : args === void 0 ? [] : [args] });
+      }
+    }
+    const data = "ops" in changes ? changes.ops : "changes" in changes ? changes.changes : Object.keys(changes).length ? changes : null;
+    return { changes: data, effects: list };
+  }
+  var CodeRunner = class {
+    worker;
+    /** Answers by what the code was given: the same input gives the same answer, so a chat counted again doesn't wait on the code again. */
+    answers = /* @__PURE__ */ new Map();
+    /** Why the code can't run at all (it doesn't read, or it loads a module), found before a Worker starts. */
+    problem;
+    constructor(code) {
+      this.problem = codeProblem(cardScript(code));
+      this.worker = new LockedWorker(() => workerSource(code));
+    }
+    async call(input2) {
+      if (this.problem) return { changes: null, effects: [], error: this.problem };
+      const key = quickHash(JSON.stringify(input2));
+      const kept2 = this.answers.get(key);
+      if (kept2) return structuredClone(kept2);
+      const a = await this.worker.request({ input: input2 }, CODE_TIME);
+      const out = a.ok ? typeof a.data.error === "string" ? { changes: null, effects: [], error: a.data.error } : codeOutput(a.data.out) : { changes: null, effects: [], error: a.error === `took longer than ${CODE_TIME} ms` ? `the code took longer than ${CODE_TIME} ms` : a.error };
+      if (!out.error) {
+        if (this.answers.size >= KEEP_ANSWERS) this.answers.delete(this.answers.keys().next().value);
+        this.answers.set(key, structuredClone(out));
+      }
+      return out;
+    }
+    dispose() {
+      this.worker.dispose();
+      this.answers.clear();
+    }
+  };
+
+  // src/state/schema.ts
+  var WRITERS = ["ai", "rules", "user"];
+  var KINDS = {
+    number: "number",
+    float: "number",
+    int: "int",
+    integer: "int",
+    text: "text",
+    string: "text",
+    str: "text",
+    bool: "bool",
+    boolean: "bool",
+    enum: "enum",
+    choice: "enum",
+    list: "list",
+    array: "list",
+    map: "map",
+    record: "map",
+    object: "object",
+    group: "object",
+    any: "any"
+  };
+  var isPlain2 = (v) => !!v && typeof v === "object" && !Array.isArray(v);
+  var NAME2 = /^[\p{L}_$][\p{L}\p{N}_$]*$/u;
+  function readSchema(raw) {
+    const problems = [];
+    const top = isPlain2(raw) ? raw : {};
+    if (raw !== null && raw !== void 0 && !isPlain2(raw)) problems.push({ path: "", why: "the schema must be a set of names" });
+    const fieldsRaw = isPlain2(top.fields) && typeof top.fields.type !== "string" ? top.fields : Object.fromEntries(Object.entries(top).filter(([k2]) => k2 !== "derive"));
+    const root2 = { kind: "object", fields: {} };
+    for (const [name, def] of Object.entries(fieldsRaw)) {
+      const f = readField(def, name, problems);
+      if (f) root2.fields[name] = f;
+    }
+    const derive = {};
+    if (isPlain2(top.derive)) {
+      for (const [name, expr] of Object.entries(top.derive)) {
+        const src = typeof expr === "number" || typeof expr === "boolean" ? String(expr) : expr;
+        if (!NAME2.test(name)) problems.push({ path: `derive.${name}`, why: "a computed value's name is one word" });
+        else if (root2.fields[name]) problems.push({ path: `derive.${name}`, why: "a value of this name is in the fields" });
+        else if (typeof src !== "string") problems.push({ path: `derive.${name}`, why: "needs an expression" });
+        else {
+          const problem = exprProblem(src);
+          if (problem) problems.push({ path: `derive.${name}`, why: problem });
+          else derive[name] = src;
+        }
+      }
+    }
+    return { schema: { root: root2, derive }, problems };
+  }
+  function readWriters(v, path, problems) {
+    if (v === void 0 || v === null) return void 0;
+    const list = (Array.isArray(v) ? v : String(v).split(/[\s,]+/)).map((x2) => String(x2).trim().toLowerCase()).filter(Boolean);
+    if (list.includes("all")) return [...WRITERS];
+    if (list.includes("none")) return [];
+    const out = list.filter((w2) => WRITERS.includes(w2));
+    if (out.length !== list.length) problems.push({ path, why: `write: one or more of ${WRITERS.join(", ")}` });
+    return out;
+  }
+  function readBound(v, path, problems) {
+    if (v === void 0 || v === null) return void 0;
+    if (typeof v === "number") return v;
+    const problem = exprProblem(String(v));
+    if (problem) {
+      problems.push({ path, why: problem });
+      return void 0;
+    }
+    return String(v);
+  }
+  function readField(raw, path, problems) {
+    if (typeof raw === "string" && KINDS[raw.toLowerCase()]) return { kind: KINDS[raw.toLowerCase()] };
+    if (typeof raw === "number") return { kind: Number.isInteger(raw) ? "int" : "number", default: raw };
+    if (typeof raw === "boolean") return { kind: "bool", default: raw };
+    if (typeof raw === "string") return { kind: "text", default: raw };
+    if (Array.isArray(raw)) return { kind: "list", default: raw };
+    if (!isPlain2(raw)) {
+      problems.push({ path, why: "a field needs a kind" });
+      return void 0;
+    }
+    const typeName = typeof raw.type === "string" ? raw.type.toLowerCase() : void 0;
+    if (typeName === void 0) {
+      const fields = {};
+      for (const [name, def] of Object.entries(raw)) {
+        const f = readField(def, `${path}.${name}`, problems);
+        if (f) fields[name] = f;
+      }
+      return { kind: "object", fields };
+    }
+    const kind = KINDS[typeName];
+    if (!kind) {
+      problems.push({ path, why: `"${raw.type}" is not a kind (${Object.keys(KINDS).join(", ")})` });
+      return void 0;
+    }
+    const field2 = { kind };
+    if (kind === "enum") {
+      const values2 = Array.isArray(raw.of) ? raw.of : Array.isArray(raw.values) ? raw.values : [];
+      field2.values = values2.map(String);
+      if (!field2.values.length) problems.push({ path, why: "an enum lists its words in `of`" });
+    }
+    if (kind === "list" || kind === "map") {
+      const item2 = raw.of ?? raw.item ?? raw.items;
+      if (item2 !== void 0) field2.item = readField(item2, `${path}[]`, problems);
+      if (typeof raw.max_items === "number" && raw.max_items >= 0) field2.maxItems = Math.floor(raw.max_items);
+    }
+    if (kind === "object") {
+      field2.fields = {};
+      for (const [name, def] of Object.entries(isPlain2(raw.fields) ? raw.fields : {})) {
+        const f = readField(def, `${path}.${name}`, problems);
+        if (f) field2.fields[name] = f;
+      }
+    }
+    if (kind === "number" || kind === "int") {
+      field2.min = readBound(raw.min, `${path}.min`, problems);
+      field2.max = readBound(raw.max, `${path}.max`, problems);
+    }
+    if ("default" in raw) field2.default = raw.default;
+    const write2 = raw.readonly === true ? [] : readWriters(raw.write, `${path}.write`, problems);
+    if (write2) field2.write = write2;
+    if (raw.hidden === true) field2.hidden = true;
+    if (raw.show_when !== void 0 && raw.show_when !== null) {
+      const src = String(raw.show_when);
+      const problem = exprProblem(src);
+      if (problem) problems.push({ path: `${path}.show_when`, why: problem });
+      else field2.showWhen = src;
+    }
+    if (typeof raw.note === "string") field2.note = raw.note;
+    return field2;
+  }
+  function fieldAt(root2, parts) {
+    let field2 = root2;
+    let write2 = root2.write ?? [...WRITERS];
+    for (const part of parts) {
+      let next2;
+      if (field2.kind === "object") next2 = Object.hasOwn(field2.fields ?? {}, part) ? field2.fields[part] : void 0;
+      else if (field2.kind === "list") next2 = /^(?:\d+|-)$/.test(part) ? field2.item ?? { kind: "any" } : void 0;
+      else if (field2.kind === "map") next2 = part === "__proto__" ? void 0 : field2.item ?? { kind: "any" };
+      else if (field2.kind === "any") next2 = field2;
+      if (!next2) return void 0;
+      field2 = next2;
+      if (field2.write) write2 = field2.write;
+    }
+    return { field: field2, write: write2 };
+  }
+  function emptyValue(field2) {
+    if (field2.kind === "object") {
+      const out = {};
+      for (const [name, f] of Object.entries(field2.fields ?? {})) out[name] = emptyValue(f);
+      if (isPlain2(field2.default)) Object.assign(out, structuredClone(field2.default));
+      return out;
+    }
+    if (field2.default !== void 0) return field2.default !== null && typeof field2.default === "object" ? structuredClone(field2.default) : field2.default;
+    switch (field2.kind) {
+      case "number":
+      case "int":
+        return typeof field2.min === "number" && field2.min > 0 ? field2.min : 0;
+      case "text":
+        return "";
+      case "bool":
+        return false;
+      case "enum":
+        return field2.values?.[0] ?? "";
+      case "list":
+        return [];
+      case "map":
+        return {};
+      default:
+        return null;
+    }
+  }
+
+  // src/state/rules.ts
+  var DICE = /^\s*\d*\s*d\s*\d+\s*(?:[+-]\s*\d+)?\s*$/i;
+  var isPlain3 = (v) => !!v && typeof v === "object" && !Array.isArray(v);
+  var VALUE_STEPS = ["set", "add", "sub", "push", "pull"];
+  function readRules(raw) {
+    const problems = [];
+    const rules = { events: /* @__PURE__ */ Object.create(null), eachReply: [], dice: /* @__PURE__ */ Object.create(null), triggers: /* @__PURE__ */ Object.create(null) };
+    if (raw === null || raw === void 0) return { rules, problems };
+    if (!isPlain3(raw)) {
+      problems.push({ path: "", why: "the rules must be a set of names (events, each_reply)" });
+      return { rules, problems };
+    }
+    for (const [name, def] of Object.entries(isPlain3(raw.events) ? raw.events : {})) {
+      const at3 = `events.${name}`;
+      if (Array.isArray(def)) rules.events[name] = { params: {}, steps: readSteps(def, at3, problems) };
+      else if (isPlain3(def)) {
+        const params = {};
+        if (Array.isArray(def.params)) for (const p2 of def.params) params[String(p2)] = null;
+        else if (isPlain3(def.params)) Object.assign(params, def.params);
+        let when;
+        if (def.when !== void 0 && def.when !== null) {
+          when = String(def.when);
+          const problem = exprProblem(when);
+          if (problem) {
+            problems.push({ path: `${at3}.when`, why: problem });
+            when = void 0;
+          }
+        }
+        rules.events[name] = { params, when, steps: readSteps(def.do ?? def.steps ?? [], `${at3}.do`, problems), ...typeof def.note === "string" ? { note: def.note } : {} };
+      } else problems.push({ path: at3, why: "an event is a list of steps, or params / when / do" });
+    }
+    rules.eachReply = readSteps(raw.each_reply ?? raw.every_reply ?? [], "each_reply", problems);
+    for (const [name, spec] of Object.entries(isPlain3(raw.dice) ? raw.dice : {})) {
+      const src = String(spec ?? "");
+      if (!/^[\p{L}_$][\p{L}\p{N}_$]*$/u.test(name)) problems.push({ path: `dice.${name}`, why: "a die's name is one word" });
+      else if (!DICE.test(src) && exprProblem(src)) problems.push({ path: `dice.${name}`, why: `"${src}" is neither dice like 2d6+1 nor an expression` });
+      else rules.dice[name] = src;
+    }
+    for (const [name, t2] of Object.entries(isPlain3(raw.triggers) ? raw.triggers : {})) {
+      const at3 = `triggers.${name}`;
+      if (!isPlain3(t2) || t2.when === void 0 || t2.when === null) {
+        problems.push({ path: at3, why: "a trigger has `when` and `text` or `entry`" });
+        continue;
+      }
+      const when = String(t2.when);
+      const problem = exprProblem(when);
+      if (problem) problems.push({ path: `${at3}.when`, why: problem });
+      else if (typeof t2.text !== "string" && typeof t2.entry !== "string") problems.push({ path: at3, why: "a trigger needs `text` or `entry`" });
+      else {
+        const position = t2.position === "before" || t2.position === "after" || t2.position === "depth" ? t2.position : void 0;
+        const depth = Number(t2.depth);
+        rules.triggers[name] = {
+          when,
+          ...typeof t2.text === "string" ? { text: t2.text } : { entry: String(t2.entry) },
+          ...position ? { position } : {},
+          ...Number.isFinite(depth) && t2.depth !== null && t2.depth !== void 0 ? { depth: Math.max(0, Math.round(depth)) } : {}
+        };
+      }
+    }
+    const check = (steps, at3) => {
+      for (const s of steps) {
+        if (s.kind === "do" && !rules.events[s.event]) problems.push({ path: at3, why: `there is no event "${s.event}"` });
+        if (s.kind === "if") {
+          check(s.then, at3);
+          check(s.else, at3);
+        }
+      }
+    };
+    for (const [name, e] of Object.entries(rules.events)) check(e.steps, `events.${name}`);
+    check(rules.eachReply, "each_reply");
+    return { rules, problems };
+  }
+  function checkValue(value2, at3, problems) {
+    if (typeof value2 !== "string") return;
+    const problem = exprProblem(value2);
+    if (problem) problems.push({ path: at3, why: problem });
+  }
+  function checkPath(path, at3, problems) {
+    for (const m2 of path.matchAll(/\{([^}]*)\}/g)) checkValue(m2[1], at3, problems);
+  }
+  function readSteps(raw, at3, problems) {
+    const list = Array.isArray(raw) ? raw : [raw];
+    const steps = [];
+    list.forEach((item2, i) => {
+      const here = `${at3}[${i}]`;
+      if (!isPlain3(item2)) {
+        problems.push({ path: here, why: "a step is `set: { name: value }` and the like" });
+        return;
+      }
+      if ("if" in item2) {
+        const test = String(item2.if);
+        const problem = exprProblem(test);
+        if (problem) problems.push({ path: `${here}.if`, why: problem });
+        else steps.push({ kind: "if", test, then: readSteps(item2.then ?? [], `${here}.then`, problems), else: readSteps(item2.else ?? [], `${here}.else`, problems) });
+        return;
+      }
+      if ("do" in item2) {
+        const event = String(item2.do);
+        const given = isPlain3(item2.with) ? item2.with : {};
+        for (const [k2, v] of Object.entries(given)) checkValue(v, `${here}.with.${k2}`, problems);
+        steps.push({ kind: "do", event, with: given });
+        return;
+      }
+      for (const [name, body] of Object.entries(item2)) {
+        const kind = name.toLowerCase();
+        if (kind === "remove" || kind === "delete") {
+          for (const path of Array.isArray(body) ? body : [body]) {
+            checkPath(String(path), here, problems);
+            steps.push({ kind: "remove", path: String(path) });
+          }
+        } else if (VALUE_STEPS.includes(kind) && isPlain3(body)) {
+          for (const [path, value2] of Object.entries(body)) {
+            checkPath(path, here, problems);
+            checkValue(value2, `${here}.${kind}.${path}`, problems);
+            steps.push({ kind, path, value: value2 });
+          }
+        } else problems.push({ path: here, why: `"${name}" is not a step (${[...VALUE_STEPS, "remove", "if", "do"].join(", ")})` });
+      }
+    });
+    return steps;
+  }
+
+  // src/state/yaml.ts
+  var YamlError = class extends Error {
+    constructor(message, line) {
+      super(`line ${line}: ${message}`);
+      this.line = line;
+    }
+  };
+  function readYaml(source) {
+    const trimmed = source.trim();
+    if (!trimmed) return null;
+    if (/^[[{"]/.test(trimmed)) {
+      try {
+        return JSON.parse(trimmed);
+      } catch {
+      }
+    }
+    const lines = source.split(/\r?\n/).map((raw, i) => {
+      const expanded = raw.replace(/^[ \t]+/, (lead) => lead.replace(/\t/g, "  "));
+      const text2 = expanded.trimStart();
+      return { indent: expanded.length - text2.length, text: text2.trimEnd(), no: i + 1 };
+    });
+    const reader = new BlockReader(lines);
+    const value2 = reader.block(0);
+    reader.skip();
+    if (reader.at < lines.length) throw new YamlError("unexpected text", lines[reader.at].no);
+    return value2;
+  }
+  var opensQuote = (text2, i) => i === 0 || /[\s[{(,:]/.test(text2[i - 1]);
+  function stripComment(text2) {
+    let quote = "";
+    for (let i = 0; i < text2.length; i++) {
+      const c = text2[i];
+      if (quote) {
+        if (c === "\\" && quote === '"') i++;
+        else if (c === quote) quote = "";
+      } else if (c === '"' || c === "'") {
+        if (opensQuote(text2, i)) quote = c;
+      } else if (c === "#" && (i === 0 || /\s/.test(text2[i - 1]))) return text2.slice(0, i).trimEnd();
+    }
+    return text2;
+  }
+  var KEY2 = /^("(?:[^"\\]|\\.)*"|'(?:[^']|'')*'|[^\s#'"{[\-?:][^#]*?|-[^\s#][^#]*?)\s*:(?:\s+|$)/;
+  var keyOf = (text2) => text2.includes(":") ? KEY2.exec(text2) : null;
+  var isSkippable = (l) => {
+    const t2 = stripComment(l.text);
+    return t2 === "" || t2 === "---" || t2 === "...";
+  };
+  var BlockReader = class {
+    constructor(lines) {
+      this.lines = lines;
+    }
+    at = 0;
+    /** Moves past blank and comment lines. */
+    skip() {
+      while (this.at < this.lines.length && isSkippable(this.lines[this.at])) this.at++;
+    }
+    /** The value whose lines are indented at least `min`. */
+    block(min) {
+      this.skip();
+      const line = this.lines[this.at];
+      if (!line || line.indent < min) return null;
+      const text2 = stripComment(line.text);
+      if (text2 === "-" || text2.startsWith("- ")) return this.sequence(line.indent);
+      if (keyOf(text2)) return this.mapping(line.indent);
+      this.at++;
+      if (text2.startsWith("[") || text2.startsWith("{")) return this.flow(text2, line);
+      return scalar(text2, line.no);
+    }
+    sequence(indent) {
+      const out = [];
+      for (; ; ) {
+        this.skip();
+        const line = this.lines[this.at];
+        if (!line || line.indent !== indent) break;
+        const text2 = stripComment(line.text);
+        if (!(text2 === "-" || text2.startsWith("- "))) break;
+        const rest = text2 === "-" ? "" : text2.slice(2).trimStart();
+        if (rest === "") {
+          this.at++;
+          out.push(this.block(indent + 1));
+        } else {
+          const column = indent + (line.text.length - line.text.slice(1).trimStart().length);
+          this.lines[this.at] = { indent: column, text: line.text.slice(column - indent), no: line.no };
+          out.push(this.block(column));
+        }
+      }
+      return out;
+    }
+    mapping(indent) {
+      const out = {};
+      for (; ; ) {
+        this.skip();
+        const line = this.lines[this.at];
+        if (!line || line.indent !== indent) break;
+        const text2 = stripComment(line.text);
+        const m2 = keyOf(text2);
+        if (!m2) {
+          if (line.indent === indent && (text2 === "-" || text2.startsWith("- "))) break;
+          throw new YamlError("expected `name: value`", line.no);
+        }
+        const key = String(scalar(m2[1].trim(), line.no) ?? "");
+        if (key === "__proto__") throw new YamlError("`__proto__` can't be a name", line.no);
+        const rest = text2.slice(m2[0].length).trim();
+        this.at++;
+        if (rest === "") {
+          this.skip();
+          const next2 = this.lines[this.at];
+          const nextText = next2 ? stripComment(next2.text) : "";
+          if (next2 && next2.indent === indent && (nextText === "-" || nextText.startsWith("- "))) out[key] = this.sequence(indent);
+          else out[key] = this.block(indent + 1);
+        } else if (/^[|>][-+]?$/.test(rest)) out[key] = this.textBlock(indent, rest);
+        else if (rest.startsWith("[") || rest.startsWith("{")) out[key] = this.flow(rest, line);
+        else out[key] = scalar(rest, line.no);
+      }
+      return out;
+    }
+    /** `|` keeps line breaks, `>` joins lines with spaces; `-` drops the last line break, `+` keeps all. */
+    textBlock(indent, mark) {
+      const rows = [];
+      let inner = -1;
+      while (this.at < this.lines.length) {
+        const line = this.lines[this.at];
+        if (line.text === "") {
+          rows.push("");
+          this.at++;
+          continue;
+        }
+        if (line.indent <= indent) break;
+        if (inner < 0) inner = line.indent;
+        if (line.indent < inner) break;
+        rows.push(" ".repeat(line.indent - inner) + line.text);
+        this.at++;
+      }
+      const trailing = rows.length - (rows.findLastIndex((r) => r !== "") + 1);
+      const body = rows.slice(0, rows.length - trailing);
+      let text2 = mark[0] === "|" ? body.join("\n") : body.reduce((acc, r, i) => i === 0 ? r : acc + (r === "" || body[i - 1] === "" ? "\n" : " ") + r, "");
+      if (mark[1] === "+") text2 += "\n".repeat(trailing + 1);
+      else if (mark[1] !== "-" && text2 !== "") text2 += "\n";
+      return text2;
+    }
+    /** A [...] or {...} value, taking more lines until its brackets close. */
+    flow(first, line) {
+      let text2 = first;
+      while (!closed(text2)) {
+        if (this.at >= this.lines.length) throw new YamlError("a [ or { is not closed", line.no);
+        text2 += "\n" + stripComment(this.lines[this.at++].text);
+      }
+      const reader = new FlowReader(text2, line.no);
+      const value2 = reader.value(false);
+      reader.space();
+      if (reader.pos < text2.length) throw new YamlError("unexpected text after the closing bracket", line.no);
+      return value2;
+    }
+  };
+  function closed(text2) {
+    let depth = 0;
+    let quote = "";
+    for (let i = 0; i < text2.length; i++) {
+      const c = text2[i];
+      if (quote) {
+        if (c === "\\" && quote === '"') i++;
+        else if (c === quote) quote = "";
+      } else if ((c === '"' || c === "'") && opensQuote(text2, i)) quote = c;
+      else if (c === "[" || c === "{") depth++;
+      else if (c === "]" || c === "}") depth--;
+    }
+    return depth <= 0;
+  }
+  var FlowReader = class {
+    constructor(text2, line) {
+      this.text = text2;
+      this.line = line;
+    }
+    pos = 0;
+    fail(message) {
+      throw new YamlError(message, this.line + (this.text.slice(0, this.pos).match(/\n/g)?.length ?? 0));
+    }
+    space() {
+      while (this.pos < this.text.length && /\s/.test(this.text[this.pos])) this.pos++;
+    }
+    value(asKey) {
+      this.space();
+      const c = this.text[this.pos];
+      if (c === "[") return this.list();
+      if (c === "{") return this.map();
+      if (c === '"' || c === "'") return this.quoted();
+      return this.plain(asKey);
+    }
+    list() {
+      const out = [];
+      this.pos++;
+      for (; ; ) {
+        this.space();
+        if (this.text[this.pos] === "]") break;
+        out.push(this.value(false));
+        this.space();
+        if (this.text[this.pos] === ",") this.pos++;
+        else if (this.text[this.pos] !== "]") this.fail("expected , or ]");
+      }
+      this.pos++;
+      return out;
+    }
+    map() {
+      const out = {};
+      this.pos++;
+      for (; ; ) {
+        this.space();
+        if (this.text[this.pos] === "}") break;
+        const key = String(this.value(true) ?? "");
+        if (key === "__proto__") this.fail("`__proto__` can't be a name");
+        this.space();
+        if (this.text[this.pos] === ":") {
+          this.pos++;
+          out[key] = this.value(false);
+        } else out[key] = null;
+        this.space();
+        if (this.text[this.pos] === ",") this.pos++;
+        else if (this.text[this.pos] !== "}") this.fail("expected , or }");
+      }
+      this.pos++;
+      return out;
+    }
+    quoted() {
+      const quote = this.text[this.pos];
+      const start2 = this.pos;
+      this.pos++;
+      while (this.pos < this.text.length) {
+        const c = this.text[this.pos];
+        if (quote === '"' && c === "\\") this.pos += 2;
+        else if (c === quote) {
+          if (quote === "'" && this.text[this.pos + 1] === "'") this.pos += 2;
+          else break;
+        } else this.pos++;
+      }
+      if (this.pos >= this.text.length) this.fail("a quote is not closed");
+      this.pos++;
+      return unquote(this.text.slice(start2, this.pos), this.line);
+    }
+    /** A plain value up to , ] } (or `: ` for a name), keeping what is between brackets inside it (`min(a, b)`, `trust.{who}`). */
+    plain(asKey) {
+      const start2 = this.pos;
+      let depth = 0;
+      let quote = "";
+      for (; this.pos < this.text.length; this.pos++) {
+        const c = this.text[this.pos];
+        if (quote) {
+          if (c === "\\" && quote === '"') this.pos++;
+          else if (c === quote) quote = "";
+          continue;
+        }
+        if ((c === '"' || c === "'") && opensQuote(this.text, this.pos)) quote = c;
+        else if (c === "(" || c === "[" || c === "{") depth++;
+        else if (depth > 0 && (c === ")" || c === "]" || c === "}")) depth--;
+        else if (depth <= 0 && (c === "," || c === "]" || c === "}")) break;
+        else if (depth <= 0 && asKey && c === ":" && /[\s,}\]]|^$/.test(this.text[this.pos + 1] ?? "")) break;
+      }
+      const raw = this.text.slice(start2, this.pos).trim();
+      if (raw === "" && !asKey) this.fail("a value is missing");
+      return scalar(raw, this.line);
+    }
+  };
+  function unquote(text2, line) {
+    if (text2.startsWith('"')) {
+      try {
+        return JSON.parse(text2.replace(/\n\s*/g, " ").replace(/\\'/g, "'"));
+      } catch {
+        throw new YamlError("a quoted text has a bad escape", line);
+      }
+    }
+    return text2.slice(1, -1).replace(/''/g, "'").replace(/\n\s*/g, " ");
+  }
+  function scalar(text2, line) {
+    if (/^"(?:[^"\\]|\\.)*"$/.test(text2) || /^'(?:[^']|'')*'$/.test(text2)) return unquote(text2, line);
+    if (/^(?:~|null|Null|NULL)$/.test(text2) || text2 === "") return null;
+    if (/^(?:true|True|TRUE)$/.test(text2)) return true;
+    if (/^(?:false|False|FALSE)$/.test(text2)) return false;
+    if (/^[-+]?(?:\d[\d_]*(?:\.\d*)?|\.\d+)(?:[eE][-+]?\d+)?$/.test(text2)) return Number(text2.replace(/_/g, ""));
+    if (/^[&*]\S/.test(text2)) throw new YamlError("anchors (&, *) are not supported", line);
+    return text2;
+  }
+
+  // src/state/update.ts
+  var isPlain4 = (v) => !!v && typeof v === "object" && !Array.isArray(v);
+  var BLOCK2 = /```[ \t]*pesto(?![\w-])[^\n]*\n([\s\S]*?)(?:```|$(?![\s\S]))/gi;
+  var TAG2 = /<(UpdateVariable|JSONPatch|VariableEdit|VariableInsert|VariableDelete)>([\s\S]*?)<\/\1>/gi;
+  var MAX_BLOCK = 16e3;
+  function capped(body, out, read4) {
+    if (body.length > MAX_BLOCK) out.problems.push({ why: "bad-block", detail: `the block is longer than ${MAX_BLOCK} characters` });
+    else read4();
+  }
+  function readUpdates(text2) {
+    const result = { ops: [], problems: [], spans: [] };
+    const found = [];
+    for (const m2 of text2.matchAll(BLOCK2)) {
+      found.push({ at: m2.index, end: m2.index + m2[0].length, read: () => capped(m2[1], result, () => readBlock(m2[1], result)) });
+    }
+    for (const m2 of text2.matchAll(TAG2)) {
+      if (found.some((f) => m2.index >= f.at && m2.index < f.end)) continue;
+      const tag = m2[1].toLowerCase();
+      found.push({
+        at: m2.index,
+        end: m2.index + m2[0].length,
+        read: () => capped(m2[2], result, () => {
+          if (tag === "updatevariable") readSetCalls(m2[2], result);
+          else if (tag === "jsonpatch") readBlock(m2[2], result);
+          else readByName(m2[2], tag === "variableedit" ? "set" : tag === "variableinsert" ? "insert-missing" : "remove", result);
+        })
+      });
+    }
+    found.sort((a, b2) => a.at - b2.at);
+    for (const f of found) {
+      result.spans.push([f.at, f.end]);
+      f.read();
+    }
+    return result;
+  }
+  function readChanges(data) {
+    const result = { ops: [], problems: [], spans: [] };
+    if (data === null || data === void 0) return result;
+    if (typeof data === "string") readBlock(data, result);
+    else for (const item2 of Array.isArray(data) ? data : [data]) readItem(item2, result);
+    return result;
+  }
+  var LINE_SET = /^(\S+?)\s*(\+=|-=|=)\s*(.*)$/;
+  var LINE_WORD = /^(do|remove|delete|unset)\s+(\S+)\s*(.*)$/i;
+  function readBlock(body, out) {
+    const lines = body.split("\n").map((l) => l.trim()).filter((l) => l && !l.startsWith("#") && !l.startsWith("//"));
+    if (!lines.length) return;
+    if (lines.every((l) => l.startsWith("_.") || LINE_WORD.test(l) || LINE_SET.test(l) && !/^[-[{]/.test(l) && !/^[^=]*:\s/.test(l))) {
+      for (const line of lines) readLine(line, out);
+      return;
+    }
+    let data;
+    try {
+      data = readYaml(body);
+    } catch (e) {
+      out.problems.push({ why: "bad-block", detail: e instanceof Error ? e.message : String(e) });
+      return;
+    }
+    for (const item2 of Array.isArray(data) ? data : [data]) readItem(item2, out);
+  }
+  function lineValue(text2) {
+    const clean = text2.replace(/\s+\/\/.*$/, "").replace(/;\s*$/, "").trim();
+    try {
+      return readYaml(clean);
+    } catch {
+      return clean;
+    }
+  }
+  function readLine(line, out) {
+    if (line.startsWith("_.")) {
+      readSetCalls(line, out);
+      return;
+    }
+    const word = LINE_WORD.exec(line);
+    if (word) {
+      if (word[1].toLowerCase() === "do") out.ops.push({ kind: "do", event: word[2], args: readArgs(word[3]) });
+      else out.ops.push({ kind: "remove", path: word[2], ...word[3].trim() ? { value: lineValue(word[3]) } : {} });
+      return;
+    }
+    const m2 = LINE_SET.exec(line);
+    if (!m2) {
+      out.problems.push({ why: "bad-change", detail: line });
+      return;
+    }
+    out.ops.push({ kind: m2[2] === "=" ? "set" : m2[2] === "+=" ? "add" : "sub", path: m2[1], value: lineValue(m2[3]) });
+  }
+  function readArgs(text2) {
+    const t2 = text2.trim();
+    if (!t2) return {};
+    if (t2.startsWith("{")) {
+      const v = lineValue(t2);
+      if (isPlain4(v)) return v;
+    }
+    const args = {};
+    const re2 = /([\p{L}\p{N}_$]+)\s*[=:]\s*("(?:[^"\\]|\\.)*"|'(?:[^']|'')*'|\[[^\]]*\]|\{[^}]*\}|[^\s,]+)/gu;
+    for (const m2 of t2.matchAll(re2)) if (m2[1] !== "__proto__") args[m2[1]] = lineValue(m2[2]);
+    return args;
+  }
+  var OP_NAMES = {
+    replace: "set",
+    set: "set",
+    update: "set",
+    add: "add",
+    delta: "delta",
+    inc: "delta",
+    increment: "delta",
+    plus: "delta",
+    dec: "sub",
+    decrement: "sub",
+    minus: "sub",
+    push: "push",
+    insert: "push",
+    append: "push",
+    remove: "remove",
+    delete: "remove",
+    del: "remove",
+    unset: "remove",
+    pull: "pull",
+    do: "do",
+    event: "do"
+  };
+  function readItem(item2, out) {
+    if (typeof item2 === "string") {
+      readLine(item2.trim(), out);
+      return;
+    }
+    if (!isPlain4(item2)) {
+      out.problems.push({ why: "bad-change", detail: JSON.stringify(item2) });
+      return;
+    }
+    if (typeof item2.op === "string") {
+      const kind = OP_NAMES[item2.op.toLowerCase()];
+      if (!kind) {
+        out.problems.push({ why: "bad-change", detail: `unknown op "${item2.op}"` });
+        return;
+      }
+      if (kind === "do") {
+        const { event, name, args, ...rest } = item2;
+        delete rest.op;
+        out.ops.push({ kind, event: String(event ?? name ?? ""), args: { ...rest, ...isPlain4(args) ? args : {} } });
+        return;
+      }
+      const path = item2.path ?? item2.key;
+      if (typeof path !== "string") {
+        out.problems.push({ why: "bad-change", detail: `"${item2.op}" needs a path` });
+        return;
+      }
+      const value2 = "value" in item2 ? item2.value : item2.to;
+      out.ops.push({ kind, path, ...value2 !== void 0 ? { value: value2 } : {}, ...typeof item2.index === "number" ? { index: item2.index } : {} });
+      return;
+    }
+    const byKind = Object.keys(item2).every((k2) => OP_NAMES[k2.toLowerCase()]);
+    if (!byKind && typeof item2.do === "string") {
+      const { do: event, args, ...rest } = item2;
+      out.ops.push({ kind: "do", event, args: { ...rest, ...isPlain4(args) ? args : {} } });
+      return;
+    }
+    if (!byKind) {
+      for (const [path, value2] of Object.entries(item2)) out.ops.push({ kind: "set", path, value: value2 });
+      return;
+    }
+    for (const [name, body] of Object.entries(item2)) {
+      const kind = OP_NAMES[name.toLowerCase()];
+      if (kind === "do") {
+        for (const e of Array.isArray(body) ? body : [body]) {
+          if (typeof e === "string") out.ops.push({ kind, event: e, args: {} });
+          else if (isPlain4(e)) readItem({ do: e.event ?? e.name, ...e }, out);
+        }
+      } else if (kind === "remove" && (typeof body === "string" || Array.isArray(body))) {
+        for (const path of Array.isArray(body) ? body : [body]) out.ops.push({ kind, path: String(path) });
+      } else if (isPlain4(body)) {
+        for (const [path, value2] of Object.entries(body)) out.ops.push({ kind, path, value: value2 });
+      } else out.problems.push({ why: "bad-change", detail: `"${name}" needs names and values` });
+    }
+  }
+  function readByName(body, kind, out) {
+    let data;
+    try {
+      data = readYaml(body);
+    } catch (e) {
+      out.problems.push({ why: "bad-block", detail: e instanceof Error ? e.message : String(e) });
+      return;
+    }
+    const walk2 = (v, path) => {
+      if (isPlain4(v) && Object.keys(v).length) for (const [k2, x2] of Object.entries(v)) walk2(x2, [...path, k2]);
+      else if (path.length) out.ops.push({ kind, path: path.map((p2) => /[.[\]]/.test(p2) ? `["${p2}"]` : p2).join("."), ...kind === "remove" ? {} : { value: v } });
+    };
+    if (Array.isArray(data) && kind === "remove") for (const p2 of data) out.ops.push({ kind, path: String(p2) });
+    else walk2(data, []);
+  }
+  function readSetCalls(body, out) {
+    const re2 = /_\.(set|add|insert|assign|remove|delete|unset)\s*\(/g;
+    for (let m2 = re2.exec(body); m2; m2 = re2.exec(body)) {
+      const start2 = m2.index + m2[0].length;
+      const end = closingParen(body, start2);
+      if (end < 0) {
+        out.problems.push({ why: "bad-change", detail: `"_.${m2[1]}(" is not closed` });
+        break;
+      }
+      re2.lastIndex = end + 1;
+      let args;
+      try {
+        args = readYaml(`[${body.slice(start2, end)}]`);
+      } catch (e) {
+        out.problems.push({ why: "bad-change", detail: e instanceof Error ? e.message : String(e) });
+        continue;
+      }
+      if (!Array.isArray(args) || typeof args[0] !== "string") {
+        out.problems.push({ why: "bad-change", detail: `"_.${m2[1]}" needs a path first` });
+        continue;
+      }
+      const path = args[0].replace(/^stat_data\./, "").replace(/\[0\]$/, "");
+      const call = m2[1];
+      if (call === "set") out.ops.push({ kind: "set", path, value: args.length >= 3 ? args[2] : args[1] });
+      else if (call === "add") out.ops.push({ kind: "add", path, value: args[1] });
+      else if (call === "insert" || call === "assign") {
+        if (args.length >= 3 && typeof args[1] === "number") out.ops.push({ kind: "push", path, value: args[2], index: args[1] });
+        else if (args.length >= 3) out.ops.push({ kind: "set", path: `${path}.${args[1]}`, value: args[2] });
+        else out.ops.push({ kind: "push", path, value: args[1] });
+      } else out.ops.push({ kind: "remove", path, ...args.length >= 2 ? { value: args[1] } : {} });
+    }
+  }
+  function closingParen(text2, from) {
+    let depth = 0;
+    let quote = "";
+    for (let i = from; i < text2.length; i++) {
+      const c = text2[i];
+      if (quote) {
+        if (c === "\\") i++;
+        else if (c === quote) quote = "";
+      } else if (c === '"' || c === "'" || c === "`") quote = c;
+      else if (c === "(" || c === "[" || c === "{") depth++;
+      else if (c === ")" || c === "]" || c === "}") {
+        if (depth === 0) return c === ")" ? i : -1;
+        depth--;
+      }
+    }
+    return -1;
+  }
+
+  // src/state/engine.ts
+  var isPlain5 = (v) => !!v && typeof v === "object" && !Array.isArray(v);
+  var clone2 = (v) => v !== null && typeof v === "object" ? structuredClone(v) : v;
+  var MAX_STEPS = 2e3;
+  var MAX_DEPTH = 8;
+  function loadDefinition(entries) {
+    const problems = [];
+    const read4 = (entry, v) => {
+      if (typeof v !== "string") return v ?? null;
+      try {
+        return readYaml(v);
+      } catch (e) {
+        problems.push({ entry, path: e instanceof YamlError ? `line ${e.line}` : "", why: e instanceof Error ? e.message : String(e) });
+        return null;
+      }
+    };
+    const s = readSchema(read4("schema", entries.schema));
+    for (const p2 of s.problems) problems.push({ entry: "schema", ...p2 });
+    const r = readRules(read4("rules", entries.rules));
+    for (const p2 of r.problems) problems.push({ entry: "rules", ...p2 });
+    const def = { schema: s.schema, rules: r.rules, start: {}, sig: quickHash(JSON.stringify([entries.schema, entries.start, entries.rules, entries.code ?? ""])), ...entries.code?.trim() ? { code: entries.code } : {} };
+    const values2 = emptyValue(s.schema.root);
+    const startRaw = read4("start", entries.start);
+    if (startRaw !== null && !isPlain5(startRaw)) problems.push({ entry: "start", path: "", why: "the start values must be a set of names" });
+    else if (startRaw) {
+      const work = new Work(def, values2, () => 0);
+      for (const [name, value2] of Object.entries(startRaw)) work.apply({ kind: "set", path: name, value: value2 }, "start");
+      for (const p2 of work.problems) problems.push({ entry: "start", path: p2.path ?? "", why: [p2.why, p2.detail].filter(Boolean).join(": ") });
+    }
+    def.start = values2;
+    return { def, problems };
+  }
+  function seeded(seed) {
+    let s = Number(quickHash(seed).split(":")[1]) || 1;
+    return () => {
+      s = s + 1831565813 | 0;
+      let t2 = Math.imul(s ^ s >>> 15, 1 | s);
+      t2 = t2 + Math.imul(t2 ^ t2 >>> 7, 61 | t2) ^ t2;
+      return ((t2 ^ t2 >>> 14) >>> 0) / 4294967296;
+    };
+  }
+  function derived(def, values2) {
+    const scope = makeScope(def, values2, {}, () => 0);
+    const out = {};
+    for (const name of Object.keys(def.schema.derive)) {
+      try {
+        out[name] = clone2(scope.name(name));
+      } catch {
+        out[name] = null;
+      }
+    }
+    return out;
+  }
+  var scopeFor = (def, values2) => makeScope(def, values2, {}, () => 0);
+  function makeScope(def, values2, locals, random) {
+    const done = /* @__PURE__ */ new Map();
+    const working = /* @__PURE__ */ new Set();
+    const scope = {
+      random,
+      name(name) {
+        if (Object.hasOwn(locals, name)) return locals[name];
+        const expr = def.schema.derive[name];
+        if (expr !== void 0 && Object.hasOwn(def.schema.derive, name)) {
+          if (done.has(name)) return done.get(name);
+          if (working.has(name)) throw new ExprError(`"${name}" is computed from itself`);
+          working.add(name);
+          try {
+            const v = evaluate2(expr, scope);
+            done.set(name, v);
+            return v;
+          } finally {
+            working.delete(name);
+          }
+        }
+        if (Object.hasOwn(values2, name)) return values2[name];
+        throw new ExprError(`there is no value "${name}"`);
+      }
+    };
+    return scope;
+  }
+  var Work = class {
+    constructor(def, values2, random, base = {}) {
+      this.def = def;
+      this.values = values2;
+      this.random = random;
+      this.base = base;
+    }
+    changes = [];
+    problems = [];
+    /** the events the AI named (for the card's code) */
+    events = [];
+    steps = 0;
+    scope(locals = {}) {
+      return makeScope(this.def, this.values, { ...this.base, ...locals }, this.random);
+    }
+    /** A value brought to a field's kind, or why it can't be. `current` is the value now (groups merge into it). */
+    coerce(field2, value2, current) {
+      if (field2.kind !== "list" && field2.kind !== "any" && Array.isArray(value2) && value2.length === 2 && typeof value2[1] === "string") value2 = value2[0];
+      const bad = (detail) => ({ ok: false, why: "wrong-kind", detail });
+      switch (field2.kind) {
+        case "number":
+        case "int": {
+          let n = typeof value2 === "number" ? value2 : typeof value2 === "string" && value2.trim() !== "" ? Number(value2.trim().replace(/,/g, "")) : NaN;
+          if (!Number.isFinite(n)) return bad(`needs a number, not ${JSON.stringify(value2)}`);
+          if (field2.kind === "int") n = Math.round(n);
+          const bound = (b2) => {
+            if (b2 === void 0) return void 0;
+            if (typeof b2 === "number") return b2;
+            const v = evaluate2(b2, this.scope());
+            return typeof v === "number" && Number.isFinite(v) ? v : void 0;
+          };
+          let clamped = false;
+          try {
+            const lo = bound(field2.min);
+            const hi2 = bound(field2.max);
+            if (lo !== void 0 && n < lo) [n, clamped] = [lo, true];
+            if (hi2 !== void 0 && n > hi2) [n, clamped] = [hi2, true];
+          } catch (e) {
+            this.problems.push({ why: "bad-rule", detail: `a limit: ${e instanceof Error ? e.message : e}` });
+          }
+          return { ok: true, value: n, clamped };
+        }
+        case "text":
+          if (typeof value2 === "string") return { ok: true, value: value2 };
+          if (typeof value2 === "number" || typeof value2 === "boolean") return { ok: true, value: String(value2) };
+          return bad(`needs text, not ${JSON.stringify(value2)}`);
+        case "bool": {
+          if (typeof value2 === "boolean") return { ok: true, value: value2 };
+          const word = String(value2).trim().toLowerCase();
+          if (["true", "yes", "1", "on"].includes(word)) return { ok: true, value: true };
+          if (["false", "no", "0", "off"].includes(word)) return { ok: true, value: false };
+          return bad(`needs yes or no, not ${JSON.stringify(value2)}`);
+        }
+        case "enum": {
+          const word = String(value2 ?? "").trim().toLowerCase();
+          const found = field2.values?.find((v) => v.toLowerCase() === word);
+          return found !== void 0 ? { ok: true, value: found } : bad(`one of ${field2.values?.join(", ")}, not ${JSON.stringify(value2)}`);
+        }
+        case "list": {
+          if (!Array.isArray(value2)) return bad(`needs a list, not ${JSON.stringify(value2)}`);
+          const items2 = [];
+          for (const item2 of value2) {
+            const c = field2.item ? this.coerce(field2.item, item2, void 0) : { ok: true, value: clone2(item2) };
+            if (c.ok) items2.push(c.value);
+            else return c;
+          }
+          if (field2.maxItems !== void 0 && items2.length > field2.maxItems) return { ok: true, value: items2.slice(0, field2.maxItems), clamped: true };
+          return { ok: true, value: items2 };
+        }
+        case "map": {
+          if (!isPlain5(value2)) return bad(`needs names and values, not ${JSON.stringify(value2)}`);
+          const out = {};
+          for (const [k2, v] of Object.entries(value2)) {
+            if (k2 === "__proto__") continue;
+            const c = field2.item ? this.coerce(field2.item, v, isPlain5(current) ? current[k2] : void 0) : { ok: true, value: clone2(v) };
+            if (!c.ok) return { ...c, detail: `${k2}: ${c.detail}` };
+            out[k2] = c.value;
+          }
+          return { ok: true, value: out };
+        }
+        case "object": {
+          if (!isPlain5(value2)) return bad(`needs names and values, not ${JSON.stringify(value2)}`);
+          const out = isPlain5(current) ? clone2(current) : emptyValue(field2);
+          let clamped = false;
+          for (const [k2, v] of Object.entries(value2)) {
+            const f = field2.fields?.[k2];
+            if (!f || !Object.hasOwn(field2.fields, k2)) return { ok: false, why: "unknown-path", detail: `there is no "${k2}" here` };
+            const c = this.coerce(f, v, out[k2]);
+            if (!c.ok) return { ...c, detail: `${k2}: ${c.detail}` };
+            out[k2] = c.value;
+            clamped ||= !!c.clamped;
+          }
+          return { ok: true, value: out, clamped };
+        }
+        default:
+          return { ok: true, value: clone2(value2) };
+      }
+    }
+    /** The container that holds the last part of a path, made where a map or group entry is still missing. */
+    parentOf(parts) {
+      let at3 = this.values;
+      for (let i = 0; i < parts.length - 1; i++) {
+        const part = parts[i];
+        if (Array.isArray(at3)) {
+          const n = Number(part);
+          if (!/^\d+$/.test(part) || n >= at3.length) return void 0;
+          at3 = at3[n];
+        } else if (isPlain5(at3)) {
+          if (!Object.hasOwn(at3, part) || at3[part] === null || typeof at3[part] !== "object") {
+            const f = fieldAt(this.def.schema.root, parts.slice(0, i + 1))?.field;
+            if (!f || f.kind !== "object" && f.kind !== "map" && f.kind !== "list") return void 0;
+            at3[part] = emptyValue(f);
+          }
+          at3 = at3[part];
+        } else return void 0;
+      }
+      return Array.isArray(at3) || isPlain5(at3) ? at3 : void 0;
+    }
+    /** Makes one change, after checking it; problems and changes are written down. */
+    apply(op, by, event) {
+      if (++this.steps > MAX_STEPS) {
+        if (this.steps === MAX_STEPS + 1) this.problems.push({ why: "too-much", detail: `more than ${MAX_STEPS} changes in one message`, by });
+        return;
+      }
+      if (op.kind === "do") {
+        const before = this.problems.length;
+        this.event(op.event ?? "", op.args ?? {}, by, 0);
+        if (by === "ai") this.events.push({ name: op.event ?? "", args: clone2(op.args ?? {}), ran: !this.problems.slice(before).some((p2) => p2.event === op.event && (p2.why === "unknown-event" || p2.why === "refused" || p2.why === "too-much")) });
+        return;
+      }
+      const pathText = op.path ?? "";
+      const parts = pathParts(pathText);
+      const path = parts.join(".");
+      const problem = (why, detail) => void this.problems.push({ why, path, by, ...event ? { event } : {}, ...detail ? { detail } : {} });
+      if (!parts.length) return problem("unknown-path", "a change needs a path");
+      if (Object.hasOwn(this.def.schema.derive, parts[0])) return problem("computed", "computed from other values; change those");
+      const last = parts[parts.length - 1];
+      if (last === "-") {
+        if (op.kind === "remove") return problem("missing", `"${path}" is no item`);
+        this.steps--;
+        return this.apply({ ...op, kind: "push", path: parts.slice(0, -1).join(".") }, by, event);
+      }
+      const found = fieldAt(this.def.schema.root, parts);
+      if (!found) return problem("unknown-path", `there is no "${path}"`);
+      if (by !== "start" && !found.write.includes(by)) return problem("not-allowed", `${by === "ai" ? "the AI" : by} may not change "${path}"`);
+      const { field: field2 } = found;
+      const parent = this.parentOf(parts);
+      if (!parent) return problem("missing", `"${parts.slice(0, -1).join(".")}" is not there`);
+      const has = Array.isArray(parent) ? /^\d+$/.test(last) && Number(last) < parent.length : Object.hasOwn(parent, last);
+      const current = has ? parent[last] : void 0;
+      let kind = op.kind;
+      if (kind === "add") kind = field2.kind === "number" || field2.kind === "int" ? "delta" : field2.kind === "list" ? "push" : "set";
+      if (kind === "sub") {
+        if (field2.kind === "number" || field2.kind === "int") kind = "delta";
+        else if (field2.kind === "list") kind = "pull";
+        else return problem("wrong-kind", `"-=" needs a number or a list`);
+        if (kind === "delta") op = { ...op, value: -toNumber(op.value) };
+      }
+      if (kind === "insert-missing") {
+        if (!has || current === null) kind = "set";
+        else if (field2.kind === "list" && Array.isArray(op.value)) {
+          for (const item2 of op.value) if (!current.some((x2) => same2(x2, item2))) this.apply({ kind: "push", path, value: item2 }, by, event);
+          return;
+        } else return;
+      }
+      const write2 = (value2, clamped) => {
+        if (same2(current, value2) && has && !clamped) return;
+        if (Array.isArray(parent)) {
+          if (/^\d+$/.test(last) && Number(last) <= parent.length) parent[Number(last)] = value2;
+          else return problem("missing", `the list has no item ${last}`);
+        } else parent[last] = value2;
+        this.changes.push({ path, from: clone2(current), to: clone2(value2), by, ...clamped ? { clamped } : {}, ...event ? { event } : {} });
+      };
+      switch (kind) {
+        case "set": {
+          if (op.value === null && field2.kind !== "any") return this.remove(parent, last, has, current, field2, path, by, event);
+          const c = this.coerce(field2, op.value, current);
+          if (!c.ok) return problem(c.why, c.detail);
+          return write2(c.value, c.clamped);
+        }
+        case "delta": {
+          if (field2.kind !== "number" && field2.kind !== "int") return problem("wrong-kind", `"${path}" is not a number`);
+          const by_ = Number(typeof op.value === "string" ? op.value.replace(/,/g, "") : op.value);
+          if (!Number.isFinite(by_)) return problem("wrong-kind", `needs a number, not ${JSON.stringify(op.value)}`);
+          const base = typeof current === "number" ? current : toNumber(emptyValue(field2));
+          const c = this.coerce(field2, base + by_, current);
+          if (!c.ok) return problem(c.why, c.detail);
+          return write2(c.value, c.clamped);
+        }
+        case "push": {
+          if (field2.kind !== "list") return problem("wrong-kind", `"${path}" is not a list`);
+          const list = Array.isArray(current) ? current : [];
+          if (field2.maxItems !== void 0 && list.length >= field2.maxItems) return problem("full", `"${path}" holds ${field2.maxItems} at most`);
+          const c = field2.item ? this.coerce(field2.item, op.value, void 0) : { ok: true, value: clone2(op.value) };
+          if (!c.ok) return problem(c.why, c.detail);
+          const at3 = op.index === void 0 || op.index < 0 || op.index > list.length ? list.length : op.index;
+          const next2 = [...list.slice(0, at3), c.value, ...list.slice(at3)];
+          return write2(next2);
+        }
+        case "pull": {
+          if (field2.kind !== "list") return problem("wrong-kind", `"${path}" is not a list`);
+          const list = Array.isArray(current) ? current : [];
+          const i = list.findIndex((x2) => same2(x2, op.value));
+          if (i < 0) return problem("missing", `${JSON.stringify(op.value)} is not in "${path}"`);
+          return write2([...list.slice(0, i), ...list.slice(i + 1)]);
+        }
+        case "remove": {
+          if (op.value === void 0) return this.remove(parent, last, has, current, field2, path, by, event);
+          if (field2.kind === "list") {
+            const list = Array.isArray(current) ? current : [];
+            if (list.some((x2) => same2(x2, op.value))) return this.apply({ kind: "pull", path, value: op.value }, by, event);
+            if (typeof op.value === "number") return this.apply({ kind: "remove", path: `${path}.${op.value}` }, by, event);
+            return problem("missing", `${JSON.stringify(op.value)} is not in "${path}"`);
+          }
+          return this.apply({ kind: "remove", path: `${path}.${op.value}` }, by, event);
+        }
+      }
+    }
+    remove(parent, last, has, current, field2, path, by, event) {
+      if (!has) return;
+      const holder = fieldAt(this.def.schema.root, pathParts(path).slice(0, -1))?.field;
+      let to;
+      if (Array.isArray(parent)) parent.splice(Number(last), 1);
+      else if (holder?.kind === "map" || holder?.kind === "any") delete parent[last];
+      else {
+        to = emptyValue(field2);
+        if (same2(current, to)) return;
+        parent[last] = to;
+      }
+      this.changes.push({ path, from: clone2(current), to: clone2(to ?? null), by, ...event ? { event } : {} });
+    }
+    /** Runs an event the AI (or another event) named. */
+    event(name, args, by, depth) {
+      const rule = Object.hasOwn(this.def.rules.events, name) ? this.def.rules.events[name] : void 0;
+      if (!rule) {
+        this.problems.push({ why: "unknown-event", event: name, by, detail: `there is no event "${name}"` });
+        return;
+      }
+      if (depth >= MAX_DEPTH) {
+        this.problems.push({ why: "too-much", event: name, by, detail: `events call each other more than ${MAX_DEPTH} deep` });
+        return;
+      }
+      const locals = { ...clone2(rule.params) };
+      for (const [k2, v] of Object.entries(args)) if (k2 !== "__proto__") locals[k2] = clone2(v);
+      if (rule.when) {
+        let ok;
+        try {
+          ok = evaluate2(rule.when, this.scope(locals));
+        } catch (e) {
+          this.problems.push({ why: "bad-rule", event: name, by, detail: `when: ${e instanceof Error ? e.message : e}` });
+          return;
+        }
+        if (!ok) {
+          this.problems.push({ why: "refused", event: name, by, detail: `not now (${rule.when})` });
+          return;
+        }
+      }
+      this.steps_(rule.steps, locals, name, depth);
+    }
+    /** A rule's steps, run with the rules' right to write. */
+    steps_(steps, locals, event, depth) {
+      for (const step of steps) {
+        try {
+          if (step.kind === "if") {
+            this.steps_(evaluate2(step.test, this.scope(locals)) ? step.then : step.else, locals, event, depth);
+          } else if (step.kind === "do") {
+            const given = {};
+            for (const [k2, v] of Object.entries(step.with)) given[k2] = this.valueOf(v, locals);
+            this.event(step.event, given, "rules", depth + 1);
+          } else {
+            const path = step.path.replace(/\{([^}]*)\}/g, (_2, expr) => {
+              const v = evaluate2(expr, this.scope(locals));
+              return /[.[\]]/.test(String(v)) ? `["${String(v).replace(/"/g, "")}"]` : String(v);
+            });
+            const value2 = step.kind === "remove" ? void 0 : this.valueOf(step.value, locals);
+            this.apply({ kind: step.kind, path, ...value2 !== void 0 ? { value: value2 } : {} }, "rules", event);
+          }
+        } catch (e) {
+          if (!(e instanceof ExprError)) throw e;
+          this.problems.push({ why: "bad-rule", by: "rules", ...event ? { event } : {}, detail: e.message });
+        }
+      }
+    }
+    valueOf(v, locals) {
+      return typeof v === "string" ? clone2(evaluate2(v, this.scope(locals))) : clone2(v);
+    }
+  };
+  var toNumber = (v) => {
+    const n = Number(v);
+    return Number.isFinite(n) ? n : 0;
+  };
+  function rollAll(def, values2, random) {
+    const out = {};
+    const scope = makeScope(def, values2, {}, random);
+    for (const [name, spec] of Object.entries(def.rules.dice)) {
+      try {
+        out[name] = DICE.test(spec) ? rollDice(spec, random) : clone2(evaluate2(spec, scope));
+      } catch {
+        out[name] = null;
+      }
+    }
+    return out;
+  }
+  async function runMessage(def, values2, message, code) {
+    const random = seeded(`${def.sig}:${message.id}`);
+    let dice;
+    if (message.fromAI && Object.keys(def.rules.dice).length) dice = message.dice ?? rollAll(def, values2, seeded(`${def.sig}:${message.id}:dice`));
+    const work = new Work(def, values2, random, dice ? { dice } : {});
+    if (message.fromAI) {
+      const read4 = readUpdates(message.text);
+      for (const p2 of read4.problems) work.problems.push({ why: p2.why, by: "ai", detail: p2.detail });
+      for (const op of read4.ops) work.apply(op, "ai");
+      let effects = [];
+      if (code) {
+        const out = await code({ id: message.id, text: message.text, values: clone2(values2), derived: derived(def, values2), changes: clone2(work.changes), events: work.events, dice: dice ?? null });
+        if (out?.error) work.problems.push({ why: "code", by: "rules", detail: out.error });
+        if (out) {
+          const read5 = readChanges(out.changes);
+          for (const p2 of read5.problems) work.problems.push({ why: "code", by: "rules", detail: p2.detail });
+          for (const op of read5.ops) work.apply(op, "rules");
+          effects = out.effects;
+        }
+      }
+      work.steps_(def.rules.eachReply, {}, void 0, 0);
+      for (const op of message.edits ?? []) work.apply(op, "user");
+      return { id: message.id, changes: work.changes, problems: work.problems, ...dice ? { dice } : {}, ...effects.length ? { effects } : {} };
+    }
+    for (const op of message.edits ?? []) work.apply(op, "user");
+    return { id: message.id, changes: work.changes, problems: work.problems };
+  }
+  var messageSig = (m2) => quickHash(`${m2.id}\0${m2.fromAI ? 1 : 0}\0${m2.text}\0${m2.edits ? JSON.stringify(m2.edits) : ""}\0${m2.dice ? JSON.stringify(m2.dice) : ""}`);
+  var StoryEngine = class {
+    constructor(def, every = 25, code) {
+      this.def = def;
+      this.every = every;
+      this.code = code;
+      this.last = clone2(def.start);
+    }
+    messages = [];
+    chain = [];
+    turns = [];
+    /** values after message i, every `every` messages and after the last */
+    checkpoints = /* @__PURE__ */ new Map();
+    last;
+    /** Brings the values up to date with the chat's messages; returns how many messages were worked out. */
+    /** One update or read at a time: the card's code is awaited between messages. */
+    turnTaking = Promise.resolve();
+    inTurn(fn) {
+      const next2 = this.turnTaking.then(fn, fn);
+      this.turnTaking = next2.catch(() => void 0);
+      return next2;
+    }
+    update(messages) {
+      return this.inTurn(() => this.recompute(messages));
+    }
+    async recompute(messages) {
+      const chain = [];
+      let prev = this.def.sig;
+      for (const m2 of messages) chain.push(prev = quickHash(`${prev}|${messageSig(m2)}`));
+      let first = 0;
+      while (first < chain.length && first < this.chain.length && chain[first] === this.chain[first]) first++;
+      if (first === chain.length && first === this.chain.length) return 0;
+      for (const i of [...this.checkpoints.keys()]) if (i >= first) this.checkpoints.delete(i);
+      this.turns.length = first;
+      let from = -1;
+      for (const i of this.checkpoints.keys()) if (i > from) from = i;
+      const values2 = clone2(from >= 0 ? this.checkpoints.get(from) : this.def.start);
+      for (let i = from + 1; i < messages.length; i++) {
+        const turn = await runMessage(this.def, values2, messages[i], this.code);
+        if (i >= first) this.turns[i] = turn;
+        if ((i + 1) % this.every === 0 || i === messages.length - 1) this.checkpoints.set(i, clone2(values2));
+      }
+      this.messages = messages;
+      this.chain = chain;
+      this.last = values2;
+      return messages.length - (from + 1);
+    }
+    /** The values after the last message. */
+    get values() {
+      return clone2(this.last);
+    }
+    /** The values after message `index` (-1: before the first). */
+    valuesAt(index) {
+      return this.inTurn(() => this.replayTo(index));
+    }
+    async replayTo(index) {
+      if (index >= this.messages.length - 1) return this.values;
+      if (index < 0) return clone2(this.def.start);
+      let from = -1;
+      for (const i of this.checkpoints.keys()) if (i <= index && i > from) from = i;
+      const values2 = clone2(from >= 0 ? this.checkpoints.get(from) : this.def.start);
+      for (let i = from + 1; i <= index; i++) await runMessage(this.def, values2, this.messages[i], this.code);
+      return values2;
+    }
+    /**
+     * The number values after each of the last `last` messages, by path (computed ones too), for a
+     * graph: one pass from the checkpoint before them (the card's code answers from what it kept).
+     */
+    numbersOverTime(last = 200) {
+      return this.inTurn(async () => {
+        const count = this.messages.length;
+        const from = Math.max(0, count - last);
+        let at3 = -1;
+        for (const i of this.checkpoints.keys()) if (i < from && i > at3) at3 = i;
+        const values2 = clone2(at3 >= 0 ? this.checkpoints.get(at3) : this.def.start);
+        const series = {};
+        const record = (step) => {
+          const walk2 = (v, path) => {
+            if (typeof v === "number" && Number.isFinite(v) && path) {
+              (series[path] ??= Array(count - from).fill(null))[step] = v;
+            } else if (isPlain5(v)) for (const [k2, x2] of Object.entries(v)) walk2(x2, path ? `${path}.${k2}` : k2);
+          };
+          walk2(values2, "");
+          walk2(derived(this.def, values2), "");
+        };
+        for (let i = at3 + 1; i < count; i++) {
+          await runMessage(this.def, values2, this.messages[i], this.code);
+          if (i >= from) record(i - from);
+        }
+        return { from, series };
+      });
+    }
+    /** What message `index` changed and which of its changes were refused. */
+    turn(index) {
+      return this.turns[index];
+    }
+    /** The values with the computed ones beside them. */
+    view(values2 = this.last) {
+      return { values: clone2(values2), derived: derived(this.def, values2) };
+    }
+  };
+
+  // src/state/prompt.ts
+  var isPlain6 = (v) => !!v && typeof v === "object" && !Array.isArray(v);
+  var hiddenName = (name) => name.startsWith("_");
+  function kindText(f) {
+    switch (f.kind) {
+      case "number":
+      case "int": {
+        const word = f.kind === "int" ? "whole number" : "number";
+        if (f.min !== void 0 && f.max !== void 0) return `${word} ${f.min}..${f.max}`;
+        if (f.min !== void 0) return `${word} ≥ ${f.min}`;
+        if (f.max !== void 0) return `${word} ≤ ${f.max}`;
+        return word;
+      }
+      case "text":
+        return "text";
+      case "bool":
+        return "true/false";
+      case "enum":
+        return `one of ${f.values?.join(", ")}`;
+      case "list":
+        return `list${f.item ? ` of ${itemText(f.item)}` : ""}${f.maxItems !== void 0 ? `, at most ${f.maxItems}` : ""}`;
+      case "map":
+        return `names and values${f.item ? ` (${itemText(f.item)})` : ""}`;
+      case "object":
+        return `{${Object.keys(f.fields ?? {}).join(", ")}}`;
+      default:
+        return "any value";
+    }
+  }
+  var itemText = (f) => f.kind === "object" ? `{${Object.keys(f.fields ?? {}).join(", ")}}` : kindText(f);
+  function exampleFor(path, f) {
+    const key = f.kind === "map" ? path.replace(".<name>", ".someone") : path;
+    const item2 = f.kind === "map" ? f.item ?? { kind: "any" } : f;
+    switch (item2.kind) {
+      case "number":
+      case "int":
+        return `${key} -= 1`;
+      case "enum":
+        return `${key} = ${item2.values?.[item2.values.length > 1 ? 1 : 0] ?? "…"}`;
+      case "list":
+        return `${key} += "…"`;
+      case "bool":
+        return `${key} = true`;
+      default:
+        return `${key} = "…"`;
+    }
+  }
+  function writableLines(field2, prefix, inherited, out) {
+    for (const [name, f] of Object.entries(field2.fields ?? {})) {
+      if (f.hidden || hiddenName(name)) continue;
+      const path = prefix ? `${prefix}.${name}` : name;
+      const ai2 = f.write ? f.write.includes("ai") : inherited;
+      if (f.kind === "object") {
+        writableLines(f, path, ai2, out);
+        continue;
+      }
+      if (!ai2) continue;
+      const key = f.kind === "map" ? `${path}.<name>` : path;
+      const kind = f.kind === "map" && f.item ? kindText(f.item) : kindText(f);
+      out.push({ line: `- ${key}: ${kind}${f.note ? ` — ${f.note}` : ""}`, example: exampleFor(key, f) });
+    }
+  }
+  function howToText(def) {
+    const fields = [];
+    writableLines(def.schema.root, "", def.schema.root.write ? def.schema.root.write.includes("ai") : true, fields);
+    const events = Object.entries(def.rules.events).filter(([name]) => !hiddenName(name)).map(([name, e]) => {
+      const params = Object.entries(e.params).map(([k2, v]) => v === null || v === void 0 ? k2 : `${k2}=${JSON.stringify(v)}`);
+      return `- do ${[name, ...params].join(" ")}${e.note ? ` — ${e.note}` : ""}${e.when ? ` (only when ${e.when})` : ""}`;
+    });
+    if (!fields.length && !events.length) return "";
+    const firstEvent = Object.keys(def.rules.events).find((name) => !hiddenName(name));
+    const example = [...fields.slice(0, 2).map((f) => f.example), ...firstEvent ? [`do ${firstEvent}`] : []];
+    return [
+      "[Pesto]",
+      "Fornello keeps this story's values and works them out; you report what happened. End each reply with one block of this reply's changes (leave it out when nothing changed), using only the names below:",
+      "```pesto",
+      ...example,
+      "```",
+      "`=` sets, `+=` adds (to a number, or an item to a list), `-=` takes away, `remove name` clears it. Write the change, not the new total. The current values are given near the end of the chat; never write them out yourself.",
+      ...fields.length ? ["Values you may change:", ...fields.map((f) => f.line)] : [],
+      ...events.length ? ["Events (`do name value=…`; Fornello works out what they change):", ...events] : []
+    ].join("\n");
+  }
+  function valueText(v) {
+    if (v === null || v === void 0) return "none";
+    if (Array.isArray(v)) return v.length ? v.every((x2) => !x2 || typeof x2 !== "object") ? v.map((x2) => valueText(x2)).join(", ") : JSON.stringify(v) : "(none)";
+    if (isPlain6(v)) {
+      const entries = Object.entries(v);
+      if (!entries.length) return "(none)";
+      return entries.every(([, x2]) => !x2 || typeof x2 !== "object") ? entries.map(([k2, x2]) => `${k2}=${valueText(x2)}`).join(", ") : JSON.stringify(v);
+    }
+    const text2 = String(v);
+    return text2.length > 400 ? `${text2.slice(0, 400)}…` : text2;
+  }
+  function valueLines2(field2, values2, prefix, shown2, out) {
+    for (const [name, f] of Object.entries(field2.fields ?? {})) {
+      if (f.hidden || hiddenName(name) || !shown2(f)) continue;
+      const path = prefix ? `${prefix}.${name}` : name;
+      if (f.kind === "object") valueLines2(f, isPlain6(values2[name]) ? values2[name] : {}, path, shown2, out);
+      else out.push([path, valueText(values2[name])]);
+    }
+  }
+  function shownValues(def, values2) {
+    const scope = scopeFor(def, values2);
+    const shown2 = (f) => {
+      if (!f.showWhen) return true;
+      try {
+        return !!evaluate2(f.showWhen, scope);
+      } catch {
+        return true;
+      }
+    };
+    const out = [];
+    valueLines2(def.schema.root, values2, "", shown2, out);
+    for (const [name, v] of Object.entries(derived(def, values2))) if (!hiddenName(name)) out.push([name, valueText(v)]);
+    return out;
+  }
+  function nowText(def, values2, last, dice) {
+    const lines = shownValues(def, values2).map(([path, text2]) => `${path}: ${text2}`);
+    if (!lines.length && !last && !dice) return "";
+    const out = ["[Pesto now]", ...lines];
+    if (last) {
+      const refused = last.problems.filter((p2) => p2.by === "ai").slice(0, 5).map((p2) => `${p2.event && !p2.path ? `do ${p2.event}` : p2.path ?? "the block"}: ${p2.detail ?? p2.why}`);
+      if (refused.length) out.push(`Not applied from your last reply: ${refused.join("; ")}`);
+      const kept2 = last.changes.filter((c) => c.clamped && c.by === "ai").map((c) => `${c.path} kept at ${valueText(c.to)}`);
+      if (kept2.length) out.push(`Kept within limits: ${kept2.slice(0, 5).join("; ")}`);
+    }
+    if (dice && Object.keys(dice).length)
+      out.push(`Dice for this reply, already rolled (let them decide how things turn out): ${Object.entries(dice).map(([k2, v]) => `${k2} ${valueText(v)}`).join(", ")}`);
+    return out.join("\n");
+  }
+
+  // src/state/convert.ts
+  var isPlain7 = (v) => !!v && typeof v === "object" && !Array.isArray(v);
+  var LIST_MARK = "$__META_EXTENSIBLE__$";
+  function looseJson(text2) {
+    let out = "";
+    let quote = "";
+    for (let i = 0; i < text2.length; i++) {
+      const c = text2[i];
+      if (quote) {
+        out += c;
+        if (c === "\\") out += text2[++i] ?? "";
+        else if (c === quote) quote = "";
+        continue;
+      }
+      if (c === '"' || c === "'") {
+        quote = c;
+        out += c;
+      } else if (c === "/" && text2[i + 1] === "/") {
+        while (i < text2.length && text2[i] !== "\n") i++;
+        out += "\n";
+      } else if (c === "/" && text2[i + 1] === "*") {
+        const end = text2.indexOf("*/", i + 2);
+        i = end < 0 ? text2.length : end + 1;
+      } else out += c;
+    }
+    return out.replace(/,(\s*[}\]])/g, "$1");
+  }
+  var withoutFence = (text2) => text2.trim().replace(/^```[\w-]*\n([\s\S]*?)\n?```$/, "$1");
+  function readData(text2) {
+    const body = withoutFence(text2);
+    try {
+      return JSON.parse(looseJson(body));
+    } catch {
+      try {
+        return readYaml(body);
+      } catch {
+        return null;
+      }
+    }
+  }
+  var isPair = (v) => Array.isArray(v) && v.length === 2 && typeof v[1] === "string" && v[1] !== LIST_MARK && !isPlain7(v[0]);
+  function plainValues(v) {
+    if (isPair(v)) return plainValues(v[0]);
+    if (Array.isArray(v)) return v.filter((x2) => x2 !== LIST_MARK).map(plainValues);
+    if (isPlain7(v)) return Object.fromEntries(Object.entries(v).filter(([k2]) => k2 !== "$meta").map(([k2, x2]) => [k2, plainValues(x2)]));
+    return v;
+  }
+  function rangeIn(note) {
+    const m2 = /\[\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*\]/.exec(note);
+    if (!m2) return null;
+    const min = Number(m2[1]);
+    const max = Number(m2[2]);
+    return min < max ? { min, max } : null;
+  }
+  function itemKind(items2) {
+    const kinds = new Set(items2.map((x2) => typeof x2 === "number" ? Number.isInteger(x2) ? "int" : "number" : typeof x2 === "string" ? "text" : typeof x2 === "boolean" ? "bool" : "any"));
+    if (kinds.size === 2 && kinds.has("int") && kinds.has("number")) return "number";
+    return kinds.size === 1 ? [...kinds][0] : "any";
+  }
+  function fieldFor(raw, inherited = false) {
+    const note = isPair(raw) ? raw[1].trim() : "";
+    const v = isPair(raw) ? raw[0] : raw;
+    const withNote = (f) => note ? { ...f, note } : f;
+    if (typeof v === "number") {
+      const range = note ? rangeIn(note) : null;
+      return withNote({ type: Number.isInteger(v) && (!range || Number.isInteger(range.min) && Number.isInteger(range.max)) ? "int" : "number", ...range ?? {} });
+    }
+    if (typeof v === "string") return withNote({ type: "text" });
+    if (typeof v === "boolean") return withNote({ type: "bool" });
+    if (Array.isArray(v)) {
+      const items2 = v.filter((x2) => x2 !== LIST_MARK).map(plainValues);
+      const kind = itemKind(items2);
+      return withNote({ type: "list", ...items2.length ? { of: kind } : {} });
+    }
+    if (isPlain7(v)) {
+      const meta = isPlain7(v.$meta) ? v.$meta : {};
+      const open2 = meta.extensible === true || meta.recursiveExtensible === true || inherited && meta.extensible !== false;
+      const children = Object.entries(v).filter(([k2]) => k2 !== "$meta");
+      if (open2) {
+        const sample = meta.template !== void 0 ? meta.template : children[0]?.[1];
+        return withNote({ type: "map", ...sample !== void 0 ? { of: fieldFor(sample, meta.recursiveExtensible === true) } : {} });
+      }
+      const group = {};
+      for (const [k2, x2] of children) group[k2] = fieldFor(x2, inherited || meta.recursiveExtensible === true);
+      return children.length ? group : withNote({ type: "any" });
+    }
+    return withNote({ type: "any" });
+  }
+  function fromData(data) {
+    if (!isPlain7(data)) return null;
+    const top = isPlain7(data.stat_data) ? data.stat_data : data;
+    const fields = {};
+    for (const [k2, v] of Object.entries(top)) if (k2 !== "$meta") fields[k2] = fieldFor(v, isPlain7(top.$meta) && top.$meta.recursiveExtensible === true);
+    if (!Object.keys(fields).length) return null;
+    return { schema: { fields }, start: plainValues(top) };
+  }
+  function merge(a, b2) {
+    if (isPlain7(a) && isPlain7(b2)) {
+      const out = { ...a };
+      for (const [k2, v] of Object.entries(b2)) out[k2] = k2 in out ? merge(out[k2], v) : v;
+      return out;
+    }
+    return b2;
+  }
+  function initVarData(entries) {
+    let data = null;
+    for (const e of entries) {
+      if (!/\[initvar\]/i.test(String(e.name ?? ""))) continue;
+      const read4 = readData(String(e.content ?? ""));
+      if (isPlain7(read4)) data = data === null ? read4 : merge(data, read4);
+    }
+    return data;
+  }
+  function startTagData(firstMessage) {
+    let data = null;
+    for (const m2 of firstMessage.matchAll(/<(VariableInsert|VariableEdit)>([\s\S]*?)<\/\1>/gi)) {
+      const read4 = readData(m2[2]);
+      if (isPlain7(read4)) data = data === null ? read4 : merge(data, read4);
+    }
+    return data;
+  }
+  var yamlKey = (k2) => /^[A-Za-z_][\w-]*$/.test(k2) ? k2 : JSON.stringify(k2);
+  function flow(v) {
+    if (Array.isArray(v)) return `[${v.map(flow).join(", ")}]`;
+    if (isPlain7(v)) {
+      const parts = Object.entries(v).map(([k2, x2]) => `${yamlKey(k2)}: ${flow(x2)}`);
+      return parts.length ? `{ ${parts.join(", ")} }` : "{}";
+    }
+    return typeof v === "string" ? JSON.stringify(v) : v === void 0 ? "null" : String(v);
+  }
+  function writeYaml(data, indent = "") {
+    const lines = [];
+    for (const [k2, v] of Object.entries(data)) {
+      if (isPlain7(v) && typeof v.type !== "string" && Object.keys(v).length) lines.push(`${indent}${yamlKey(k2)}:`, writeYaml(v, `${indent}  `));
+      else lines.push(`${indent}${yamlKey(k2)}: ${flow(v)}`);
+    }
+    return lines.join("\n");
+  }
+
+  // src/state/script-schema.ts
+  function tokens(code) {
+    const out = [];
+    let i = 0;
+    while (i < code.length) {
+      const c = code[i];
+      if (/\s/.test(c)) i++;
+      else if (c === "/" && code[i + 1] === "/") while (i < code.length && code[i] !== "\n") i++;
+      else if (c === "/" && code[i + 1] === "*") {
+        const end = code.indexOf("*/", i + 2);
+        i = end < 0 ? code.length : end + 2;
+      } else if (c === '"' || c === "'" || c === "`") {
+        let j = i + 1;
+        let text2 = "";
+        while (j < code.length && code[j] !== c) {
+          if (code[j] === "\\") {
+            const n = code[j + 1] ?? "";
+            text2 += n === "n" ? "\n" : n === "t" ? "	" : n;
+            j += 2;
+          } else text2 += code[j++];
+        }
+        out.push({ kind: "str", text: code.slice(i, j + 1), value: text2 });
+        i = j + 1;
+      } else if (/[\d.]/.test(c) && /\d/.test(c === "." ? code[i + 1] ?? "" : c)) {
+        const m2 = /^(?:0[xX][\da-fA-F]+|\d*\.?\d+(?:[eE][+-]?\d+)?)/.exec(code.slice(i));
+        out.push({ kind: "num", text: m2[0], value: Number(m2[0]) });
+        i += m2[0].length;
+      } else if (/[\p{L}_$]/u.test(c)) {
+        const m2 = /^[\p{L}\p{N}_$]+/u.exec(code.slice(i));
+        out.push({ kind: "name", text: m2[0] });
+        i += m2[0].length;
+      } else if (code.startsWith("=>", i)) {
+        out.push({ kind: "punct", text: "=>" });
+        i += 2;
+      } else {
+        out.push({ kind: "punct", text: c });
+        i++;
+      }
+    }
+    return out;
+  }
+  var OPEN = { "(": ")", "[": "]", "{": "}" };
+  var ANY = { type: "any" };
+  var Reader = class {
+    constructor(toks) {
+      this.toks = toks;
+      for (let i = 0; i + 2 < toks.length; i++) {
+        if (toks[i].kind === "name" && /^(?:const|let|var)$/.test(toks[i].text) && toks[i + 1].kind === "name" && toks[i + 2].text === "=" && toks[i + 3]?.text !== "=") {
+          if (!this.bindings.has(toks[i + 1].text)) this.bindings.set(toks[i + 1].text, i + 3);
+        }
+      }
+    }
+    pos = 0;
+    bindings = /* @__PURE__ */ new Map();
+    /** names being read, so a schema that names itself doesn't go round forever */
+    reading = /* @__PURE__ */ new Set();
+    /** Where registerMvuSchema( … ) starts its argument, or -1. */
+    registered() {
+      for (let i = 0; i + 1 < this.toks.length; i++) if (this.toks[i].text === "registerMvuSchema" && this.toks[i + 1].text === "(" && this.toks[i - 1]?.text !== ".") return i + 2;
+      return -1;
+    }
+    at(pos) {
+      this.pos = pos;
+      return this.expr();
+    }
+    peek = (k2 = 0) => this.toks[this.pos + k2];
+    take = () => this.toks[this.pos++];
+    is = (text2, k2 = 0) => this.peek(k2)?.text === text2;
+    /** Skips one argument (up to the next , or closing bracket at this depth). */
+    skipArg() {
+      let depth = 0;
+      while (this.pos < this.toks.length) {
+        const t2 = this.peek();
+        if (depth === 0 && (t2.text === "," || t2.text === ")" || t2.text === "]" || t2.text === "}")) return;
+        if (OPEN[t2.text]) depth++;
+        else if (t2.text === ")" || t2.text === "]" || t2.text === "}") depth--;
+        this.pos++;
+      }
+    }
+    /** The tokens of one argument, skipped. */
+    argTokens() {
+      const from = this.pos;
+      this.skipArg();
+      return this.toks.slice(from, this.pos);
+    }
+    /** Reads `( a, b, … )` with each argument read by `each`. */
+    args(each) {
+      const out = [];
+      if (!this.is("(")) return out;
+      this.pos++;
+      while (this.pos < this.toks.length && !this.is(")")) {
+        out.push(each());
+        this.skipArg();
+        if (!this.is(",")) break;
+        this.pos++;
+      }
+      if (this.is(")")) this.pos++;
+      return out;
+    }
+    /** A plain value: a number, string, true/false/null, or an array or object of those. */
+    literal() {
+      const t2 = this.peek();
+      if (!t2) return void 0;
+      if (t2.text === "-" && this.peek(1)?.kind === "num") {
+        this.pos += 2;
+        return -this.toks[this.pos - 1].value;
+      }
+      if (t2.kind === "num" || t2.kind === "str") {
+        this.pos++;
+        return t2.value;
+      }
+      if (t2.kind === "name" && /^(?:true|false|null)$/.test(t2.text)) {
+        this.pos++;
+        return t2.text === "true" ? true : t2.text === "false" ? false : null;
+      }
+      if (t2.text === "[") {
+        this.pos++;
+        const out = [];
+        while (this.pos < this.toks.length && !this.is("]")) {
+          out.push(this.literal());
+          this.skipArg();
+          if (this.is(",")) this.pos++;
+        }
+        this.pos++;
+        return out;
+      }
+      if (t2.text === "{") {
+        this.pos++;
+        const out = {};
+        while (this.pos < this.toks.length && !this.is("}")) {
+          const key = this.take();
+          if (this.is(":")) {
+            this.pos++;
+            const k2 = key.kind === "str" ? String(key.value) : key.text;
+            if (k2 !== "__proto__") out[k2] = this.literal();
+          }
+          this.skipArg();
+          if (this.is(",")) this.pos++;
+        }
+        this.pos++;
+        return out;
+      }
+      return void 0;
+    }
+    /** A zod chain: z.kind(…) then .method(…) calls; or a name bound to one. */
+    expr() {
+      let shape = this.base();
+      while (this.is(".") && this.peek(1)?.kind === "name") {
+        const method = this.toks[this.pos + 1].text;
+        this.pos += 2;
+        shape = this.method(shape, method);
+      }
+      return shape;
+    }
+    base() {
+      const t2 = this.peek();
+      if (!t2 || t2.kind !== "name") return ANY;
+      if (t2.text !== "z") {
+        this.pos++;
+        const at3 = this.bindings.get(t2.text);
+        if (at3 === void 0 || this.reading.has(t2.text)) return ANY;
+        const back = this.pos;
+        this.reading.add(t2.text);
+        const shape = this.at(at3);
+        this.reading.delete(t2.text);
+        this.pos = back;
+        return structuredClone(shape);
+      }
+      this.pos++;
+      let kind = "";
+      while (this.is(".") && this.peek(1)?.kind === "name") {
+        kind = this.toks[this.pos + 1].text;
+        this.pos += 2;
+        if (kind !== "coerce") break;
+      }
+      return this.kind(kind);
+    }
+    kind(kind) {
+      switch (kind) {
+        case "number":
+        case "bigint":
+          this.args(() => void 0);
+          return { type: "number" };
+        case "int":
+        case "int32":
+          this.args(() => void 0);
+          return { type: "int" };
+        case "string":
+          this.args(() => void 0);
+          return { type: "text" };
+        case "boolean":
+          this.args(() => void 0);
+          return { type: "bool" };
+        case "enum": {
+          const [words] = this.args(() => this.literal());
+          const list = Array.isArray(words) ? words : words && typeof words === "object" ? Object.values(words) : [];
+          return list.length ? { type: "enum", words: list.map(String) } : ANY;
+        }
+        case "literal": {
+          const [v] = this.args(() => this.literal());
+          return typeof v === "string" ? { type: "enum", words: [v], default: v } : { type: "any", default: v };
+        }
+        case "object":
+        case "strictObject":
+        case "looseObject": {
+          const [fields] = this.args(() => this.objectFields());
+          return { type: "object", fields: fields ?? {} };
+        }
+        case "array":
+        case "set": {
+          const [item2] = this.args(() => this.expr());
+          return { type: "list", ...item2 && item2.type !== "any" ? { of: item2 } : {} };
+        }
+        case "record":
+        case "map": {
+          const [key, value2] = this.args(() => this.expr());
+          const item2 = value2 ?? ANY;
+          if (key?.type === "enum" && key.words) return { type: "object", fields: Object.fromEntries(key.words.map((w2) => [w2, structuredClone(item2)])) };
+          return { type: "map", ...item2.type !== "any" ? { of: item2 } : {} };
+        }
+        case "optional":
+        case "nullable":
+        case "nullish":
+        case "readonly": {
+          const [inner] = this.args(() => this.expr());
+          return inner ?? ANY;
+        }
+        default:
+          this.args(() => void 0);
+          return ANY;
+      }
+    }
+    /** `{ name: z…, … }` inside z.object(…). */
+    objectFields() {
+      const out = {};
+      if (!this.is("{")) return out;
+      this.pos++;
+      while (this.pos < this.toks.length && !this.is("}")) {
+        const key = this.take();
+        if (this.is(":")) {
+          this.pos++;
+          const name = key.kind === "str" ? String(key.value) : key.text;
+          const shape = this.expr();
+          if (name !== "__proto__") out[name] = shape;
+        }
+        this.skipArg();
+        if (this.is(",")) this.pos++;
+      }
+      if (this.is("}")) this.pos++;
+      return out;
+    }
+    method(shape, method) {
+      switch (method) {
+        case "default":
+        case "prefault":
+        case "catch": {
+          const [v] = this.args(() => this.literal());
+          if (v !== void 0 && shape.default === void 0 && !(shape.type === "object" && v && typeof v === "object")) shape.default = v;
+          return shape;
+        }
+        case "min":
+        case "gte":
+        case "max":
+        case "lte": {
+          const [n] = this.args(() => this.literal());
+          if (typeof n === "number" && (shape.type === "number" || shape.type === "int")) shape[method === "min" || method === "gte" ? "min" : "max"] = n;
+          return shape;
+        }
+        case "int":
+          this.args(() => void 0);
+          if (shape.type === "number") shape.type = "int";
+          return shape;
+        case "describe": {
+          const [note] = this.args(() => this.literal());
+          if (typeof note === "string" && note.trim()) shape.note = note.trim();
+          return shape;
+        }
+        case "transform": {
+          const [body] = this.args(() => this.argTokens());
+          const range = clampIn(body ?? []);
+          if (range && (shape.type === "number" || shape.type === "int")) Object.assign(shape, range);
+          return shape;
+        }
+        case "pipe": {
+          const [next2] = this.args(() => this.expr());
+          return next2 && next2.type !== "any" ? { ...next2, ...shape.default !== void 0 ? { default: shape.default } : {} } : shape;
+        }
+        case "or":
+          this.args(() => void 0);
+          return { type: "any", ...shape.default !== void 0 ? { default: shape.default } : {} };
+        default:
+          this.args(() => void 0);
+          return shape;
+      }
+    }
+  };
+  function clampIn(toks) {
+    const text2 = toks.map((t2) => t2.text).join(" ");
+    const n = String.raw`(-\s*)?(\d+(?:\.\d+)?)`;
+    const num2 = (sign, digits) => (sign ? -1 : 1) * Number(digits);
+    const clamp = new RegExp(String.raw`\bclamp \( [\p{L}\p{N}_$]+ , ${n} , ${n} \)`, "u").exec(text2);
+    if (clamp) return ordered(num2(clamp[1], clamp[2]), num2(clamp[3], clamp[4]));
+    const minMax = new RegExp(String.raw`Math \. (min|max) \( Math \. (min|max) \( [\p{L}\p{N}_$]+ , ${n} \) , ${n} \)`, "u").exec(text2);
+    if (minMax && minMax[1] !== minMax[2]) return ordered(num2(minMax[3], minMax[4]), num2(minMax[5], minMax[6]));
+    return null;
+  }
+  var ordered = (a, b2) => a < b2 ? { min: a, max: b2 } : a > b2 ? { min: b2, max: a } : null;
+  function field(shape) {
+    if (shape.type === "object") {
+      const out2 = {};
+      for (const [k2, s] of Object.entries(shape.fields ?? {})) out2[k2] = field(s);
+      return Object.keys(out2).length ? out2 : { type: "any" };
+    }
+    const out = { type: shape.type };
+    if (shape.words) out.of = shape.words;
+    if (shape.of !== void 0) out.of = field(shape.of);
+    if (shape.min !== void 0) out.min = shape.min;
+    if (shape.max !== void 0) out.max = shape.max;
+    if (shape.type === "int" && [shape.min, shape.max].some((b2) => b2 !== void 0 && !Number.isInteger(b2))) out.type = "number";
+    const empty2 = shape.default !== null && typeof shape.default === "object" && !Object.keys(shape.default).length;
+    if (shape.default !== void 0 && shape.default !== null && !empty2) out.default = shape.default;
+    if (shape.note) out.note = shape.note;
+    return out;
+  }
+  function scriptSchema(codes) {
+    for (const code of codes) {
+      if (!code.includes("registerMvuSchema")) continue;
+      const reader = new Reader(tokens(code));
+      const at3 = reader.registered();
+      if (at3 < 0) continue;
+      const shape = reader.at(at3);
+      if (shape.type !== "object" || !shape.fields || !Object.keys(shape.fields).length) continue;
+      return { fields: field(shape) };
+    }
+    return null;
+  }
+
+  // src/state/fill.ts
+  function hasBlock(text2) {
+    return readUpdates(text2).spans.length > 0;
+  }
+  function withFilled(text2, filled) {
+    if (typeof filled !== "string" || !filled.trim() || hasBlock(text2)) return text2;
+    return `${text2}
+
+\`\`\`pesto
+${filled.trim()}
+\`\`\``;
+  }
+  var fillable = (def) => howToText(def) !== "";
+  function fillMessages(def, before, reply) {
+    const values2 = shownValues(def, before).map(([path, text2]) => `${path}: ${text2}`);
+    return [
+      {
+        role: "system",
+        content: [
+          "You read one reply of an ongoing roleplay. Its writer was asked to end it with a block of the story's changes and forgot. Write that block for them.",
+          "Report only what the reply itself makes happen; when nothing changed, answer with the single word none.",
+          "",
+          howToText(def),
+          "",
+          "[Values before this reply]",
+          ...values2.length ? values2 : ["(none shown)"],
+          "",
+          "Answer with the block alone (```pesto … ```), or none. No other words."
+        ].join("\n")
+      },
+      { role: "user", content: reply.trim() || "(empty reply)" }
+    ];
+  }
+  function readFill(answer) {
+    const text2 = answer.trim();
+    const fenced = /```[ \t]*(?:pesto(?![\w-]))?[^\n]*\n([\s\S]*?)(?:```|$(?![\s\S]))/i.exec(text2);
+    const body = (fenced ? fenced[1] : text2).trim();
+    if (!body || /^none\.?$/i.test(body)) return "";
+    return body;
+  }
+
+  // src/state/mirror.ts
+  var fieldKey = (name) => name.trim().normalize("NFKC").toLocaleLowerCase("en-US").replace(/\s+/gu, " ");
+  function mergeFields(existing, def, values2, owned) {
+    const ours = values2 ? shownValues(def, values2).map(([name, value2]) => ({ name, value: value2 })) : [];
+    const oursByKey = new Map(ours.map((f) => [fieldKey(f.name), f]));
+    const fields = [];
+    const now = /* @__PURE__ */ new Set();
+    for (const f of existing) {
+      const key = fieldKey(f.name);
+      if (!owned.has(key)) {
+        fields.push(f);
+        oursByKey.delete(key);
+        continue;
+      }
+      const mine = oursByKey.get(key);
+      if (mine) {
+        fields.push({ ...f, value: mine.value });
+        now.add(key);
+        oursByKey.delete(key);
+      }
+    }
+    for (const [key, f] of oursByKey) {
+      fields.push(f);
+      now.add(key);
+    }
+    return { fields, owned: now };
+  }
+  var sameFields = (a, b2) => a.length === b2.length && a.every((f, i) => f.name === b2[i].name && f.value === b2[i].value && (f.icon ?? null) === (b2[i].icon ?? null));
+
+  // src/state/vars.ts
+  var VAR_PREFIX = "story_";
+  var MAX_VARS = 300;
+  var MAX_TEXT = 1e4;
+  var isPlain8 = (v) => !!v && typeof v === "object" && !Array.isArray(v);
+  function varName(path) {
+    const plain2 = `${VAR_PREFIX}${path.replace(/\./g, "_")}`;
+    return /^[A-Za-z_]\w{0,63}$/.test(plain2) ? safeName(plain2) : hashedName(path);
+  }
+  var hashedName = (path) => safeName(`${VAR_PREFIX}v_${quickHash(path).replace(/[^A-Za-z0-9]/g, "").slice(-8)}`);
+  var safeName = (name) => name.length === 21 ? `${name}_` : name;
+  var asText3 = (v) => {
+    const text2 = typeof v === "string" ? v : v === null || v === void 0 ? "" : typeof v === "object" ? JSON.stringify(v) : String(v);
+    return text2.length > MAX_TEXT ? text2.slice(0, MAX_TEXT) : text2;
+  };
+  function storyVars(def, values2) {
+    const out = {};
+    let count = 0;
+    const walk2 = (v, path) => {
+      if (count >= MAX_VARS) return;
+      if (path) {
+        let name = varName(path);
+        if (Object.hasOwn(out, name)) name = hashedName(path);
+        out[name] = asText3(v);
+        count++;
+      }
+      if (isPlain8(v)) for (const [k2, x2] of Object.entries(v)) walk2(x2, path ? `${path}.${k2}` : k2);
+    };
+    walk2(values2, "");
+    for (const [k2, v] of Object.entries(derived(def, values2))) walk2(v, k2);
+    return out;
+  }
+  function varChanges(had, now, owned) {
+    const out = {};
+    for (const [k2, v] of Object.entries(now)) if (had[k2] !== v) out[k2] = v;
+    for (const k2 of owned) if (Object.hasOwn(had, k2) && !Object.hasOwn(now, k2)) out[k2] = null;
+    return out;
+  }
+
+  // src/state/story.ts
+  var ENTRY_NAMES = { schema: ["schema"], start: ["start", "init"], rules: ["rules"], code: ["code"] };
+  var HOW_TO = "story-state-rules";
+  var NOW = "story-state-now";
+  var REGEX_NAME = "Fornello: Pesto blocks";
+  var BLOCK_PATTERN = "\\n*```[ \\t]*pesto(?![\\w-])[^\\n]*\\n[\\s\\S]*?(?:```|$)";
+  var entryText = (e) => withoutFence(String(e.content ?? ""));
+  async function storyLore(chatId, others = false) {
+    const cast = await chatCharacters(chatId);
+    const lists2 = await Promise.all(cast.map((c) => characterLore(c.id).catch(() => [])));
+    const book = await chatLoreBookIfAny(chatId).catch(() => null);
+    if (book) lists2.push(await loreEntries(book.id).catch(() => []));
+    const entries = lists2.flat();
+    const texts = {};
+    for (const entry of entries) {
+      const label = String(entry.name ?? "").trim();
+      if (!label.toLowerCase().startsWith("pesto:")) continue;
+      const name = label.slice("pesto:".length).trim().toLowerCase();
+      for (const kind of Object.keys(ENTRY_NAMES)) if (ENTRY_NAMES[kind].includes(name)) texts[kind] = entryText(entry);
+    }
+    if (!texts.schema && others) {
+      let from = "initvar";
+      let data = initVarData(entries);
+      if (data === null) {
+        const first = (await listMessages(chatId).catch(() => [])).find((m2) => m2.role === "char" || m2.role === "narrator");
+        data = first ? startTagData(first.text) : null;
+        from = "tags";
+      }
+      const read4 = fromData(data);
+      if (read4) Object.assign(texts, { schema: read4.schema, start: read4.start, from });
+      const fromScript = scriptSchema(cast.flatMap((c) => scriptsOf(c)?.scripts.map((s) => s.code) ?? []));
+      if (fromScript) Object.assign(texts, { schema: fromScript, schemaFrom: "script" });
+    }
+    return { texts, entries };
+  }
+  var storyMessage = (m2) => {
+    const dice = m2.story?.dice;
+    const edits2 = personEdits(m2);
+    return {
+      id: m2.id,
+      text: withFilled(m2.text, m2.story?.filled),
+      fromAI: m2.role === "char" || m2.role === "narrator",
+      ...dice && typeof dice === "object" && !Array.isArray(dice) ? { dice } : {},
+      ...edits2.length ? { edits: edits2.map((e) => ({ kind: "set", path: e.path, value: e.value })) } : {}
+    };
+  };
+  function personEdits(m2) {
+    const raw = m2.story?.edits;
+    if (!Array.isArray(raw)) return [];
+    return raw.filter((e) => !!e && typeof e === "object" && typeof e.path === "string");
+  }
+  function messagesBefore(messages, gen) {
+    if ((gen.kind === "regenerate" || gen.kind === "continue") && gen.messageId) {
+      const at3 = messages.findIndex((m2) => m2.id === gen.messageId);
+      if (at3 >= 0) return messages.slice(0, at3);
+    }
+    return messages;
+  }
+  async function ensureRegex() {
+    const scripts = await regexScripts();
+    const mine = scripts.find((s) => s.name === REGEX_NAME);
+    if (mine) {
+      if (mine.enabled && mine.findRegex !== BLOCK_PATTERN) {
+        await api(`/regex-scripts/${encodeURIComponent(mine.id)}`, { method: "PATCH", body: { findRegex: BLOCK_PATTERN } });
+        forgetRegexScripts();
+      }
+      return;
+    }
+    await api("/regex-scripts", {
+      method: "POST",
+      body: { name: REGEX_NAME, enabled: true, findRegex: BLOCK_PATTERN, replaceString: "", placement: ["ai_output"], flags: "gi", applyMode: "both" }
+    });
+    forgetRegexScripts();
+  }
+  async function removeRegex() {
+    forgetRegexScripts();
+    for (const s of await regexScripts()) if (s.name === REGEX_NAME) await api(`/regex-scripts/${encodeURIComponent(s.id)}`, { method: "DELETE" });
+    forgetRegexScripts();
+  }
+  var POSITION_OF = { 0: "before", 1: "after", 2: "depth" };
+  function isNewReply(gen, reply, target) {
+    if (!target || gen.kind === "send") return true;
+    if (gen.kind === "regenerate") return reply.swipe !== target.swipe || (reply.swipes ?? 0) > (target.swipes ?? 0);
+    return reply.text !== target.text;
+  }
+  var effectKey = (e) => JSON.stringify([e.cmd, e.args]);
+  function effectsToRun(effects, story) {
+    if (story?.effectsDone === true) return [];
+    const ran = /* @__PURE__ */ new Map();
+    for (const k2 of Array.isArray(story?.effectsRun) ? story.effectsRun : []) if (typeof k2 === "string") ran.set(k2, (ran.get(k2) ?? 0) + 1);
+    return effects.filter((e) => {
+      const k2 = effectKey(e);
+      const left = ran.get(k2) ?? 0;
+      if (left > 0) ran.set(k2, left - 1);
+      return left === 0;
+    });
+  }
+  function triggerText(trigger, entries) {
+    const entry = trigger.entry !== void 0 ? entries.findLast((e) => String(e.name ?? "").trim() === trigger.entry) : void 0;
+    const content = trigger.text ?? (entry ? String(entry.content ?? "") : "");
+    if (!content.trim()) return null;
+    const position = trigger.position ?? (entry && typeof entry.position === "number" ? POSITION_OF[entry.position] : void 0) ?? "depth";
+    const depth = trigger.depth ?? (entry && typeof entry.depth === "number" ? entry.depth : 2);
+    const role = entry && (entry.role === "user" || entry.role === "assistant" || entry.role === "system") ? entry.role : "system";
+    return { id: "", content, position, depth, role };
+  }
+  var TRIGGER = "story-trigger-";
+  var FILL_WAIT = 2e3;
+  var FILL_TIME = 3e4;
+  var KEEP_LOADED = 1500;
+  var StoryState = class {
+    constructor(settings, hooks) {
+      this.settings = settings;
+      this.hooks = hooks;
+    }
+    /** The card code running, by its hash. */
+    runners = /* @__PURE__ */ new Map();
+    /** Code asked about in this session (a "not now" is not asked again until Fornello starts again). */
+    asked = /* @__PURE__ */ new Set();
+    /** One engine a chat, for the card's entries as they were read. */
+    engines = /* @__PURE__ */ new Map();
+    /** What each chat's engine was made for: the code's hash and whether it runs. */
+    engineKeys = /* @__PURE__ */ new Map();
+    definitions = /* @__PURE__ */ new Map();
+    /** Chats whose lorebook holds entries of Pesto now, with their injection ids. */
+    placed = /* @__PURE__ */ new Map();
+    /** Card entries whose problems were shown already. */
+    told = /* @__PURE__ */ new Set();
+    /** The dice rolled for a reply being written, by chat: kept on the reply once it is saved. */
+    pending = /* @__PURE__ */ new Map();
+    loads = /* @__PURE__ */ new Map();
+    stops = [];
+    /** A helper model filling in a reply's block, by chat: the next reply waits for it (a while). */
+    filling = /* @__PURE__ */ new Map();
+    /** Marinara's reads of a chat's tracker, held while a reply is written and its values put in: let go after the reply. */
+    readHolds = /* @__PURE__ */ new Map();
+    /** The card's entries as read a moment ago, by chat (a reply, the window and the templates all read them at once). */
+    lores = /* @__PURE__ */ new Map();
+    /** The chat's card entries (storyLore), read once for a moment. */
+    lore(chatId) {
+      const others = this.settings.current.story.others;
+      const hit = this.lores.get(chatId);
+      if (hit && hit.others === others && Date.now() - hit.at < KEEP_LOADED) return hit.value;
+      const value2 = storyLore(chatId, others);
+      this.lores.set(chatId, { at: Date.now(), others, value: value2 });
+      value2.catch(() => this.lores.delete(chatId));
+      return value2;
+    }
+    /** Problems told once a session, by what they are. */
+    toldOnce = /* @__PURE__ */ new Set();
+    tellOnce(key, text2) {
+      if (this.toldOnce.has(key)) return;
+      this.toldOnce.add(key);
+      showToast(t(`Pesto: ${text2}`, `Pesto: ${text2}`), "warning");
+    }
+    /** A fill that failed was told once a session. */
+    fillTold = false;
+    start() {
+      setStoryAccess(this);
+      this.stops.push(() => setStoryAccess(null));
+      this.stops.push(
+        onGenerationStart((gen) => this.beforeReply(gen)),
+        onGenerationEnd((gen, ok) => void this.afterReply(gen, ok).catch((e) => console.warn("[Fornello] Pesto dice", e)))
+      );
+    }
+    stop() {
+      for (const stop of this.stops.splice(0)) stop();
+      this.engines.clear();
+      this.definitions.clear();
+      this.placed.clear();
+      this.pending.clear();
+      this.loads.clear();
+      this.filling.clear();
+      this.lores.clear();
+      this.owned.clear();
+      for (const release of this.readHolds.values()) release();
+      this.readHolds.clear();
+      for (const r of this.runners.values()) r.dispose();
+      this.runners.clear();
+    }
+    /** A card's code as the engine calls it, once the person allowed it; asked about otherwise. */
+    codeHook(def, cardName) {
+      if (!def.code) return { key: "" };
+      const hash = sha256(def.code);
+      const answer = this.settings.current.story.code[hash];
+      if (answer === void 0 && !this.asked.has(hash) && this.hooks) {
+        this.asked.add(hash);
+        const answerWith = (allow) => void this.answerCode(hash, allow).catch((e) => console.warn("[Fornello] Pesto code", e));
+        this.hooks.ask({
+          key: `story:${hash}`,
+          name: cardName,
+          count: 1,
+          title: t(`“${cardName}” has Pesto code`, `“${cardName}” 카드에 Pesto 코드가 있어요`),
+          note: t(
+            "It works out the story's values after each reply, in a Worker cut off from the network, and may ask for page commands (with their usual checks). Let it run?",
+            "답변마다 이야기의 값을 계산하는 코드예요. 네트워크가 막힌 Worker에서 돌고, 페이지 명령을 부탁할 수 있어요(평소처럼 확인을 거쳐요). 실행할까요?"
+          ),
+          allow: () => answerWith(true),
+          notNow: () => void 0,
+          decline: () => answerWith(false),
+          show: () => this.hooks?.showCode()
+        });
+      }
+      if (answer !== true) return { key: `${hash}:off` };
+      let runner = this.runners.get(hash);
+      if (!runner) this.runners.set(hash, runner = new CodeRunner(def.code));
+      const r = runner;
+      return { hook: (input2) => r.call(input2), key: `${hash}:on` };
+    }
+    async answerCode(hash, allow) {
+      const code = { ...this.settings.current.story.code };
+      if (allow === null) {
+        delete code[hash];
+        this.asked.delete(hash);
+      } else code[hash] = allow;
+      await this.settings.set({ story: { ...this.settings.current.story, code } });
+      this.codeAnswered();
+    }
+    /** The person answered about a card's code: values are counted again, with it or without. */
+    codeAnswered() {
+      this.engines.clear();
+      this.loads.clear();
+      const chatId = currentChatId();
+      if (chatId) storyChanged(chatId);
+    }
+    /** The chat's engine for the card's entries and the answer about its code (a new one when either changed). */
+    async engineFor(chatId, def) {
+      const cardName = def.code ? (await chatCharacters(chatId).catch(() => []))[0]?.name ?? t("This card", "이 카드") : "";
+      const { hook, key } = this.codeHook(def, cardName);
+      let engine = this.engines.get(chatId);
+      if (!engine || engine.def !== def || this.engineKeys.get(chatId) !== key) {
+        this.engines.set(chatId, engine = new StoryEngine(def, 25, hook));
+        this.engineKeys.set(chatId, key);
+      }
+      return engine;
+    }
+    /** What the card's code is and the person's answer about it (for the Pesto window). */
+    async codeOf(chatId) {
+      const { texts } = await this.lore(chatId);
+      if (!texts.code?.trim()) return null;
+      const hash = sha256(texts.code);
+      return { code: texts.code, allowed: this.settings.current.story.code[hash], hash };
+    }
+    /** The chat's engine brought up to its messages as they are now (shared for a moment), or null without Pesto. */
+    load(chatId) {
+      const hit = this.loads.get(chatId);
+      if (hit && Date.now() - hit.at < KEEP_LOADED) return hit.value;
+      const value2 = (async () => {
+        if (!this.settings.current.story.on) return null;
+        const { texts } = await this.lore(chatId);
+        if (!texts.schema) return null;
+        const { def, problems } = this.definition(texts);
+        this.tell(def, problems);
+        const engine = await this.engineFor(chatId, def);
+        const messages = await listMessages(chatId);
+        await engine.update(messages.map(storyMessage));
+        return { def, engine, messages };
+      })();
+      this.loads.set(chatId, { at: Date.now(), value: value2 });
+      value2.catch(() => this.loads.delete(chatId));
+      return value2;
+    }
+    async has(chatId) {
+      return !!await this.load(chatId).catch(() => null);
+    }
+    async at(chatId, messageId) {
+      let loaded2 = await this.load(chatId);
+      if (loaded2 && messageId !== null && !loaded2.messages.some((m2) => m2.id === messageId)) {
+        this.loads.delete(chatId);
+        loaded2 = await this.load(chatId);
+      }
+      if (!loaded2) return null;
+      const { def, engine, messages } = loaded2;
+      const index = messageId === null ? messages.length - 1 : messages.findIndex((m2) => m2.id === messageId);
+      if (messageId !== null && index < 0) return null;
+      const view = engine.view(await engine.valuesAt(index));
+      const filled = index >= 0 ? messages[index].story?.filled : void 0;
+      return {
+        def,
+        ...view,
+        turn: index >= 0 ? engine.turn(index) : void 0,
+        edits: index >= 0 ? personEdits(messages[index]) : [],
+        ...typeof filled === "string" && !hasBlock(messages[index].text) ? { filled } : {}
+      };
+    }
+    async tryReply(chatId, messageId, text2) {
+      const loaded2 = await this.load(chatId);
+      if (!loaded2) return null;
+      const { def, engine, messages } = loaded2;
+      const index = messageId === null ? messages.length - 1 : messages.findIndex((m2) => m2.id === messageId);
+      const values2 = await engine.valuesAt(index);
+      const cardName = def.code ? (await chatCharacters(chatId).catch(() => []))[0]?.name ?? "" : "";
+      const turn = await runMessage(def, values2, { id: `fornello-try-${index}`, text: text2, fromAI: true }, this.codeHook(def, cardName).hook);
+      return { turn, ...engine.view(values2) };
+    }
+    async history(chatId) {
+      const loaded2 = await this.load(chatId);
+      if (!loaded2) return null;
+      const { from, series } = await loaded2.engine.numbersOverTime();
+      const shown2 = loaded2.messages.slice(from);
+      return { ids: shown2.map((m2) => m2.id), nums: shown2.map((m2) => m2.num), series };
+    }
+    async cardOf(chatId) {
+      const { texts } = await this.lore(chatId);
+      if (!texts.schema) return null;
+      const { problems } = this.definition(texts);
+      if (!texts.from && !texts.schemaFrom) return { problems };
+      const isObj = (v) => !!v && typeof v === "object" && !Array.isArray(v);
+      return {
+        problems,
+        ...texts.from ? { from: texts.from } : {},
+        ...texts.schemaFrom ? { schemaFrom: texts.schemaFrom } : {},
+        ...isObj(texts.schema) ? { schema: writeYaml(texts.schema) } : {},
+        ...isObj(texts.start) ? { start: writeYaml(texts.start) } : {}
+      };
+    }
+    async edit(chatId, messageId, changes) {
+      const message = (await listMessages(chatId, { fresh: true })).find((m2) => m2.id === messageId);
+      if (!message) throw new Error(t("That message is gone.", "그 메시지가 없어요."));
+      const edits2 = personEdits(message).filter((e) => !changes.some((c) => c.path === e.path));
+      for (const c of changes) if (c.value !== null) edits2.push({ path: c.path, value: c.value });
+      await patchMessageExtra(chatId, messageId, storyExtra("edits", edits2), message.swipe);
+      this.loads.delete(chatId);
+      storyChanged(chatId);
+      await this.mirror(chatId).catch((e) => console.warn("[Fornello] Pesto tracker", e));
+    }
+    /** Turned off: the entries go from every chat, and the regex script with them. */
+    async turnedOff() {
+      for (const [chatId, ids] of [...this.placed]) await uninject(chatId, [...ids.keys()]).catch(() => void 0);
+      this.placed.clear();
+      this.engines.clear();
+      this.pending.clear();
+      this.loads.clear();
+      await removeRegex().catch((e) => console.warn("[Fornello] Pesto regex", e));
+    }
+    definition(texts) {
+      const key = JSON.stringify(texts);
+      let loaded2 = this.definitions.get(key);
+      if (!loaded2) {
+        loaded2 = loadDefinition(texts);
+        if (this.definitions.size > 20) this.definitions.clear();
+        this.definitions.set(key, loaded2);
+      }
+      return loaded2;
+    }
+    /** Puts these injections in the chat's lorebook and takes out the chat's others. */
+    async place(chatId, wanted) {
+      const had = this.placed.get(chatId) ?? /* @__PURE__ */ new Map();
+      const now = new Map(wanted.map((i) => [i.id, JSON.stringify(i)]));
+      const gone = [...had.keys()].filter((id) => !now.has(id));
+      if (gone.length) await uninject(chatId, gone);
+      for (const i of wanted) if (had.get(i.id) !== now.get(i.id)) await inject(chatId, i);
+      if (now.size) this.placed.set(chatId, now);
+      else this.placed.delete(chatId);
+    }
+    tell(def, problems) {
+      if (!problems.length || this.told.has(def.sig)) return;
+      this.told.add(def.sig);
+      console.warn("[Fornello] Pesto entries:", problems);
+      const first = problems[0];
+      showToast(
+        t(
+          `Pesto: pesto:${first.entry} has a problem at ${first.path || "the top"}: ${first.why}${problems.length > 1 ? ` (and ${problems.length - 1} more, in the console)` : ""}`,
+          `Pesto: pesto:${first.entry}의 ${first.path || "맨 위"}에 문제가 있어요: ${first.why}${problems.length > 1 ? ` (외 ${problems.length - 1}개, 콘솔에 있어요)` : ""}`
+        ),
+        "warning"
+      );
+    }
+    /** The values the coming reply starts from, its dice and the triggers that hold, put where the AI reads them. */
+    async beforeReply(gen) {
+      const { on, depth } = this.settings.current.story;
+      if (!on) return;
+      const chatId = gen.chatId;
+      this.pending.delete(chatId);
+      if (this.settings.current.story.tracker && gen.kind !== "impersonate") {
+        this.letReadsGo(chatId);
+        const until = new Promise((resolve) => this.readHolds.set(chatId, resolve));
+        const detail = await chatDetail(chatId).catch(() => null);
+        const agents = parseObject(detail?.metadata).enableAgents;
+        if (detail?.mode === "game" || detail?.mode === "roleplay" && (agents === true || agents === "true")) holdTrackerReads(chatId, until);
+      }
+      const filling = this.filling.get(chatId);
+      if (filling) await Promise.race([filling, new Promise((r) => setTimeout(r, FILL_WAIT))]);
+      const { texts, entries } = await this.lore(chatId);
+      if (!texts.schema) {
+        this.letReadsGo(chatId);
+        await this.place(chatId, []);
+        this.engines.delete(chatId);
+        return;
+      }
+      const { def, problems } = this.definition(texts);
+      this.tell(def, problems);
+      await ensureRegex().catch((e) => console.warn("[Fornello] Pesto regex", e));
+      const all = await listMessages(chatId, { fresh: true });
+      const messages = messagesBefore(all, gen);
+      const engine = await this.engineFor(chatId, def);
+      const story = messages.map(storyMessage);
+      await engine.update(all.map(storyMessage));
+      const values2 = await engine.valuesAt(messages.length - 1);
+      let dice;
+      if (Object.keys(def.rules.dice).length && gen.kind !== "impersonate") {
+        const continued = gen.kind === "continue" ? all.find((m2) => m2.id === gen.messageId) : void 0;
+        dice = continued && storyMessage(continued).dice || rollAll(def, values2, Math.random);
+      }
+      if (gen.kind !== "impersonate") {
+        const was = gen.messageId ? all.find((m2) => m2.id === gen.messageId) : void 0;
+        this.pending.set(chatId, { gen, ...dice ? { dice } : {}, before: new Set(all.map((m2) => m2.id)), ...was ? { target: { swipe: was.swipe, swipes: was.swipes, text: was.text } } : {} });
+      }
+      const lastAI = story.findLastIndex((m2) => m2.fromAI);
+      const wanted = [];
+      const helperWrites = this.settings.current.story.writer === "helper";
+      const howTo = helperWrites ? "" : howToText(def);
+      if (howTo) wanted.push({ id: HOW_TO, content: howTo, position: "after" });
+      const lastTurn = lastAI >= 0 && !helperWrites && !messages[lastAI].story?.filled ? engine.turn(lastAI) : void 0;
+      const now = nowText(def, values2, lastTurn, dice);
+      if (now) wanted.push({ id: NOW, content: now, position: "depth", depth, role: "system" });
+      const scope = scopeFor(def, values2);
+      for (const [name, trigger] of Object.entries(def.rules.triggers)) {
+        let holds = false;
+        try {
+          holds = !!evaluate2(trigger.when, scope);
+        } catch (e) {
+          console.warn(`[Fornello] Pesto trigger ${name}:`, e);
+        }
+        const text2 = holds ? triggerText(trigger, entries) : null;
+        if (text2) wanted.push({ ...text2, id: `${TRIGGER}${name}` });
+      }
+      await this.place(chatId, wanted);
+      await this.writeVars(chatId, this.settings.current.story.vars ? storyVars(def, values2) : {}).catch((e) => {
+        console.warn("[Fornello] Pesto variables", e);
+        this.tellOnce(`vars:${chatId}`, e instanceof Error ? e.message : String(e));
+      });
+      if (!this.settings.current.story.on) await this.place(chatId, []);
+      const pending2 = this.pending.get(chatId);
+      if (gen.late && pending2?.gen === gen && pending2.dice) {
+        console.warn("[Fornello] Pesto: the reply started before its dice were in; they are not kept");
+        delete pending2.dice;
+      }
+    }
+    /** A finished reply keeps the dice it was written with, on its swipe, so counting it again gives the same; then the card's code's effects for it run, once. */
+    async afterReply(gen, ok) {
+      try {
+        await this.afterReplyWork(gen, ok);
+      } finally {
+        this.letReadsGo(gen.chatId);
+      }
+    }
+    /** Marinara's held reads of the chat's tracker go on. */
+    letReadsGo(chatId) {
+      const release = this.readHolds.get(chatId);
+      this.readHolds.delete(chatId);
+      release?.();
+    }
+    async afterReplyWork(gen, ok) {
+      this.loads.delete(gen.chatId);
+      const pending2 = this.pending.get(gen.chatId);
+      if (!pending2 || pending2.gen !== gen) {
+        if (this.settings.current.story.on) storyChanged(gen.chatId);
+        return;
+      }
+      this.pending.delete(gen.chatId);
+      if (!ok) return;
+      const reply = await this.savedReply(gen, pending2);
+      if (!reply) return;
+      if (pending2.dice && JSON.stringify(reply.story?.dice) !== JSON.stringify(pending2.dice)) {
+        await patchMessageExtra(gen.chatId, reply.id, storyExtra("dice", pending2.dice), reply.swipe);
+        this.loads.delete(gen.chatId);
+      }
+      const refill = gen.kind === "continue" && pending2.target !== void 0 && reply.text !== pending2.target.text;
+      if (this.settings.current.story.writer !== "ai" && (reply.story?.filled === void 0 || refill) && !hasBlock(reply.text)) {
+        const fill = this.fill(gen.chatId, reply).finally(() => this.filling.get(gen.chatId) === fill && this.filling.delete(gen.chatId));
+        this.filling.set(gen.chatId, fill);
+        await fill;
+      }
+      storyChanged(gen.chatId);
+      await this.mirror(gen.chatId).catch((e) => console.warn("[Fornello] Pesto tracker", e));
+      this.letReadsGo(gen.chatId);
+      await this.runEffects(gen.chatId, reply.id);
+    }
+    /**
+     * The names Pesto wrote in a chat (its variables, its tracker fields), as read once: only
+     * Fornello writes them. (Written from another tab meanwhile, a name not known here is only left
+     * alone, never taken out.)
+     */
+    owned = /* @__PURE__ */ new Map();
+    async ownedNames(chatId, kind) {
+      const kept2 = this.owned.get(chatId)?.[kind];
+      if (kept2) return new Set(kept2);
+      const data = await readChatData(chatId);
+      const names = new Set(kind === "vars" ? data.storyVars : data.storyTracker);
+      this.owned.set(chatId, { ...this.owned.get(chatId), [kind]: names });
+      return new Set(names);
+    }
+    async keepOwned(chatId, kind, names) {
+      const list = [...new Set(names)];
+      await updateChatData(chatId, (d2) => ({ ...d2, [kind === "vars" ? "storyVars" : "storyTracker"]: list }));
+      this.owned.set(chatId, { ...this.owned.get(chatId), [kind]: new Set(list) });
+    }
+    /** The values as Marinara chat variables ("story_…"): only those that changed are written; old ones go. With nothing, all of Pesto's go. */
+    async writeVars(chatId, now = {}) {
+      const owned = await this.ownedNames(chatId, "vars");
+      const names = Object.keys(now);
+      const same3 = names.length === owned.size && names.every((n) => owned.has(n));
+      if (same3 && !names.length) return;
+      if (!same3 && names.some((n) => !owned.has(n))) await this.keepOwned(chatId, "vars", [...owned, ...names]);
+      await patchMacroVariables(chatId, varChanges(await macroVariables(chatId), now, owned));
+      if (!same3) await this.keepOwned(chatId, "vars", names);
+    }
+    /** A helper model writes the block a reply forgot; kept on the reply's swipe ("" when it found no change), counted from then on. */
+    async fill(chatId, reply) {
+      try {
+        const loaded2 = await this.load(chatId);
+        if (!loaded2 || !fillable(loaded2.def)) return;
+        const index = loaded2.messages.findIndex((m2) => m2.id === reply.id);
+        if (index < 0) return;
+        const before = await loaded2.engine.valuesAt(index - 1);
+        const { fillWith } = this.settings.current.story;
+        const runId = `fornello-fill-${reply.id}-${Date.now()}`;
+        let timer;
+        const answer = await Promise.race([
+          generate(fillMessages(loaded2.def, before, reply.text), {
+            chatId,
+            runId,
+            ...fillWith ? { connectionId: fillWith } : {},
+            parameters: { temperature: 0, maxTokens: 600 }
+          }),
+          new Promise((_2, reject) => {
+            timer = setTimeout(() => {
+              void abortRun(runId, "raw", chatId);
+              reject(new Error(t(`no answer in ${FILL_TIME / 1e3} s`, `${FILL_TIME / 1e3}초 동안 답이 없어요`)));
+            }, FILL_TIME);
+          })
+        ]).finally(() => clearTimeout(timer));
+        const filled = readFill(answer);
+        const now = (await listMessages(chatId, { fresh: true })).find((m2) => m2.id === reply.id);
+        if (!now || now.swipe !== reply.swipe || now.text !== reply.text) return;
+        await patchMessageExtra(chatId, reply.id, storyExtra("filled", filled), now.swipe);
+        this.loads.delete(chatId);
+      } catch (e) {
+        console.warn("[Fornello] Pesto fill", e);
+        if (!this.fillTold) {
+          this.fillTold = true;
+          showToast(
+            t(`Pesto: the helper model could not fill in a block: ${e instanceof Error ? e.message : String(e)}`, `Pesto: 보조 모델이 블록을 채우지 못했어요: ${e instanceof Error ? e.message : String(e)}`),
+            "warning"
+          );
+        }
+      }
+    }
+    /** The values shown in Marinara's tracker, on the last reply's snapshot (with `off`, Pesto's fields taken out of it). */
+    async mirror(chatId, off = false) {
+      if (!off && !this.settings.current.story.tracker) return;
+      const loaded2 = off ? null : await this.load(chatId);
+      const lore = off ? (await this.lore(chatId)).texts : null;
+      const def = loaded2?.def ?? (lore?.schema ? this.definition(lore).def : null);
+      if (!def) return;
+      const messages = loaded2?.messages ?? await listMessages(chatId);
+      const reply = messages.findLast((m2) => m2.role === "char" || m2.role === "narrator");
+      if (!reply) return;
+      const own = await ownTrackerState(reply.id, chatId);
+      const base = own ?? await ownTrackerState(void 0, chatId) ?? {};
+      const had = Array.isArray(base.worldCustomFields) ? base.worldCustomFields : [];
+      const before = await this.ownedNames(chatId, "tracker");
+      const { fields, owned } = mergeFields(had, def, loaded2 ? loaded2.engine.values : null, before);
+      const ownedChanged = owned.size !== before.size || [...owned].some((k2) => !before.has(k2));
+      if (ownedChanged) await this.keepOwned(chatId, "tracker", [...before, ...owned]);
+      if (!own || !sameFields(had, fields)) {
+        await patchTracker({ ...base, worldCustomFields: fields, messageId: reply.id, swipeIndex: reply.swipe ?? 0 }, ["worldCustomFields"], chatId, false);
+        if (canShowTracker()) {
+          const now = await ownTrackerState(void 0, chatId);
+          if (now) showTracker(chatId, now);
+        }
+      }
+      if (ownedChanged) await this.keepOwned(chatId, "tracker", owned);
+    }
+    /** The reply a generation wrote, once it is saved (a moment after its stream ends); null when it can't be told apart. */
+    async savedReply(gen, { before, target }) {
+      for (let tries = 0; tries < 5; tries++) {
+        const messages = await listMessages(gen.chatId, { fresh: true });
+        const reply = gen.kind === "send" ? messages.findLast((m2) => !before.has(m2.id) && (m2.role === "char" || m2.role === "narrator")) : messages.find((m2) => m2.id === gen.messageId);
+        if (reply && isSaved(reply.id) && isNewReply(gen, reply, target)) return reply;
+        await new Promise((r) => setTimeout(r, 300 * (tries + 1)));
+      }
+      return null;
+    }
+    /** The effects the card's code asked for at a new reply: run once (marked on its swipe first), as page commands (or "toast"), while its chat is open. */
+    async runEffects(chatId, messageId) {
+      const view = await this.at(chatId, messageId);
+      const effects = view?.turn?.effects;
+      if (!effects?.length || currentChatId() !== chatId) return;
+      const message = (await listMessages(chatId, { fresh: true })).find((m2) => m2.id === messageId);
+      if (!message) return;
+      const todo = effectsToRun(effects, message.story);
+      if (!todo.length) return;
+      await patchMessageExtra(chatId, messageId, storyExtra("effectsRun", effects.map(effectKey)), message.swipe);
+      this.loads.delete(chatId);
+      const report = (m2) => showToast(t(`Pesto code: ${m2}`, `Pesto 코드: ${m2}`), "warning");
+      const api2 = await pageApi({ messageId, report, ui: screenUi });
+      try {
+        for (const e of todo) {
+          if (e.cmd === "toast") {
+            showToast(String(e.args[0] ?? ""), "info");
+            continue;
+          }
+          const [head, ...rest] = e.cmd.split(".");
+          let owner = void 0;
+          let fn = api2.globals[head];
+          for (const part of rest) {
+            owner = fn;
+            fn = fn && typeof fn === "object" && Object.hasOwn(fn, part) ? fn[part] : void 0;
+          }
+          if (typeof fn !== "function") {
+            report(t(`there is no page command "${e.cmd}"`, `"${e.cmd}"라는 페이지 명령이 없어요`));
+            continue;
+          }
+          try {
+            await fn.apply(owner, e.args);
+          } catch (err) {
+            report(`${e.cmd}: ${err instanceof Error ? err.message : String(err)}`);
+          }
+        }
+      } finally {
+        api2.dispose();
+      }
+    }
+  };
+
+  // src/ejs/template.ts
+  var hasEjs = (text2) => /<%[^%]/.test(text2);
+  function parseEjs(source) {
+    const out = [];
+    let text2 = "";
+    let i = 0;
+    const pushText = () => {
+      if (text2) out.push({ kind: "text", text: text2 });
+      text2 = "";
+    };
+    while (i < source.length) {
+      const at3 = source.indexOf("<%", i);
+      if (at3 < 0) {
+        text2 += source.slice(i);
+        break;
+      }
+      text2 += source.slice(i, at3);
+      if (source[at3 + 2] === "%") {
+        text2 += "<%";
+        i = at3 + 3;
+        continue;
+      }
+      const mark = source[at3 + 2];
+      if (mark === "_") text2 = text2.replace(/[ \t]+$/, "");
+      const end = source.indexOf("%>", at3 + 2);
+      if (end < 0) throw new Error("a <% is not closed with %>");
+      let body = source.slice(at3 + 2, end);
+      const trimNext = body.endsWith("-") ? "line" : body.endsWith("_") ? "space" : "";
+      if (trimNext) body = body.slice(0, -1);
+      i = end + 2;
+      if (trimNext === "line" && source[i] === "\n") i++;
+      else if (trimNext === "line" && source.startsWith("\r\n", i)) i += 2;
+      else if (trimNext === "space") while (source[i] === " " || source[i] === "	") i++;
+      pushText();
+      if (mark === "#") continue;
+      if (mark === "=" || mark === "-") out.push({ kind: "out", text: body.slice(1).trim() });
+      else out.push({ kind: "code", text: (mark === "_" ? body.slice(1) : body).trim() });
+    }
+    pushText();
+    return out;
+  }
+  function compileEjs(source) {
+    const lines = ["let __o = '';", "const print = (...a) => { __o += a.map(__s).join(''); };"];
+    for (const s of parseEjs(source)) {
+      if (s.kind === "text") lines.push(`__o += ${JSON.stringify(s.text)};`);
+      else if (s.kind === "out") lines.push(`__o += __s(await (${s.text}));`);
+      else lines.push(s.text);
+    }
+    lines.push("return __o;");
+    return lines.join("\n");
+  }
+  var NotMacro = class extends Error {
+  };
+  var CondReader = class {
+    constructor(src, names) {
+      this.src = src;
+      this.names = names;
+    }
+    at = 0;
+    ws() {
+      while (/\s/.test(this.src[this.at] ?? "")) this.at++;
+    }
+    eat(s) {
+      this.ws();
+      if (this.src.startsWith(s, this.at)) {
+        this.at += s.length;
+        return true;
+      }
+      return false;
+    }
+    read() {
+      const out = this.or();
+      this.ws();
+      if (this.at < this.src.length) throw new NotMacro(`can't read "${this.src.slice(this.at)}"`);
+      return out;
+    }
+    or() {
+      let left = this.and();
+      while (this.eat("||")) left = `${left} || ${this.and()}`;
+      return left;
+    }
+    and() {
+      let left = this.compare();
+      while (this.eat("&&")) left = `${left} && ${this.compare()}`;
+      return left;
+    }
+    compare() {
+      const left = this.term();
+      for (const [js2, mac] of [["===", "=="], ["!==", "!="], ["==", "=="], ["!=", "!="], [">=", ">="], ["<=", "<="], [">", ">"], ["<", "<"]]) {
+        if (this.eat(js2)) return `${left.text} ${mac} ${this.term().text}`;
+      }
+      return left.text;
+    }
+    /** One operand: a variable, a quoted text, a number, a group in parentheses, or `_.has(...)` (always true here). */
+    term() {
+      this.ws();
+      if (this.eat("(")) {
+        const inner = this.or();
+        if (!this.eat(")")) throw new NotMacro("a ( is not closed");
+        return { text: `(${inner})` };
+      }
+      const num2 = /^-?\d+(?:\.\d+)?/.exec(this.src.slice(this.at));
+      if (num2) {
+        this.at += num2[0].length;
+        return { text: num2[0] };
+      }
+      const str3 = /^("(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*')/.exec(this.src.slice(this.at));
+      if (str3) {
+        this.at += str3[0].length;
+        return { text: JSON.stringify(str3[0].slice(1, -1).replace(/\\(.)/g, "$1")) };
+      }
+      if (/^true\b/.test(this.src.slice(this.at))) {
+        this.at += 4;
+        return { text: '"true"' };
+      }
+      if (/^false\b/.test(this.src.slice(this.at))) {
+        this.at += 5;
+        return { text: '"false"' };
+      }
+      const path = this.variable();
+      if (path) return path;
+      throw new NotMacro(`can't read "${this.src.slice(this.at, this.at + 30)}"`);
+    }
+    /** `getvar("stat_data").a["b"][0]`, `getvar("stat_data.a.b")`, `_.get(getvar("stat_data"), "a.b")`, `getvar("mood")`, `_.has(…)`. */
+    variable() {
+      const rest = this.src.slice(this.at);
+      const has = /^_\.has\s*\(/.exec(rest);
+      if (has) {
+        const end = closing2(this.src, this.at + has[0].length);
+        if (end < 0) throw new NotMacro("_.has( is not closed");
+        this.at = end + 1;
+        return { text: '"true"', always: true };
+      }
+      const get = /^_\.get\s*\(\s*getvar\s*\(\s*(["'])stat_data\1\s*\)\s*,\s*(["'])([^"']*)\2\s*(?:,[^)]*)?\)/.exec(rest);
+      if (get) {
+        this.at += get[0].length;
+        return { text: `var:${this.names.story(cleanPath(get[3]))}` };
+      }
+      const call = /^getvar\s*\(\s*(["'])([^"']+)\1\s*(?:,[^)]*)?\)/.exec(rest);
+      if (!call) return null;
+      this.at += call[0].length;
+      let path = call[2];
+      for (; ; ) {
+        const m2 = /^\s*(?:\.([\p{L}\p{N}_$]+)|\[\s*(["'])([^"']*)\2\s*\]|\[\s*(\d+)\s*\])/u.exec(this.src.slice(this.at));
+        if (!m2) break;
+        this.at += m2[0].length;
+        path += m2[1] !== void 0 ? `.${m2[1]}` : m2[3] !== void 0 ? `.${m2[3]}` : `[${m2[4]}]`;
+      }
+      const clean = cleanPath(path);
+      if (clean === "stat_data" || clean.startsWith("stat_data.")) return { text: `var:${this.names.story(clean.replace(/^stat_data\.?/, ""))}` };
+      if (/[.[]/.test(clean)) throw new NotMacro(`a path into a chat variable: ${clean}`);
+      const name = this.names.chat(clean);
+      if (!name) throw new NotMacro(`Marinara can't name the variable "${clean}"`);
+      return { text: `var:${name}` };
+    }
+  };
+  var cleanPath = (p2) => p2.replace(/\[(\d+)\]/g, ".$1").replace(/\.0$/, "").replace(/^\.+/, "");
+  function closing2(src, from) {
+    let depth = 1;
+    let quote = "";
+    for (let i = from; i < src.length; i++) {
+      const c = src[i];
+      if (quote) {
+        if (c === "\\") i++;
+        else if (c === quote) quote = "";
+      } else if (c === '"' || c === "'" || c === "`") quote = c;
+      else if (c === "(") depth++;
+      else if (c === ")" && --depth === 0) return i;
+    }
+    return -1;
+  }
+  function toMacros(source, names) {
+    let segments;
+    try {
+      segments = parseEjs(source);
+    } catch (e) {
+      return { why: e instanceof Error ? e.message : String(e) };
+    }
+    let out = "";
+    let open2 = 0;
+    try {
+      for (const s of segments) {
+        if (s.kind === "text") {
+          if (/\{\{|\}\}/.test(s.text) && /\{\{\s*[#/]?(?:if|else)\b/.test(s.text)) throw new NotMacro("the text already has {{#if}} blocks");
+          out += s.text;
+          continue;
+        }
+        if (s.kind === "out") {
+          const v = new CondReader(s.text, names).read();
+          if (!/^var:\S+$/.test(v)) throw new NotMacro(`prints more than a variable: ${s.text}`);
+          out += `{{getvar::${v.slice(4)}}}`;
+          continue;
+        }
+        const code = s.text.replace(/;\s*$/, "").trim();
+        let m2;
+        if (m2 = /^if\s*\(([\s\S]*)\)\s*\{$/.exec(code)) {
+          out += `{{#if ${new CondReader(m2[1], names).read()}}}`;
+          open2++;
+        } else if (m2 = /^\}\s*else\s+if\s*\(([\s\S]*)\)\s*\{$/.exec(code)) {
+          if (!open2) throw new NotMacro("an else if without its if");
+          out += `{{else if ${new CondReader(m2[1], names).read()}}}`;
+        } else if (/^\}\s*else\s*\{$/.test(code)) {
+          if (!open2) throw new NotMacro("an else without its if");
+          out += "{{else}}";
+        } else if (code === "}") {
+          if (!open2) throw new NotMacro("a } without its if");
+          out += "{{/if}}";
+          open2--;
+        } else if (code === "") continue;
+        else throw new NotMacro(`code: ${code.slice(0, 60)}`);
+      }
+    } catch (e) {
+      if (e instanceof NotMacro) return { why: e.message };
+      throw e;
+    }
+    if (open2) return { why: "an if is not closed" };
+    return { text: out };
+  }
+
+  // src/ejs/runner.ts
+  var LODASH = `
+const __path = (p) => Array.isArray(p) ? p : String(p).replace(/\\[(\\w+)\\]/g, ".$1").split(".").filter((x) => x !== "");
+const __isObj = (v) => !!v && typeof v === "object" && !Array.isArray(v);
+const _ = {
+  get(o, p, d) { let v = o; for (const k of __path(p)) { if (v === null || v === undefined) return d; v = v[k]; } return v === undefined ? d : v; },
+  has(o, p) { let v = o; for (const k of __path(p)) { if (v === null || v === undefined || !Object.prototype.hasOwnProperty.call(Object(v), k)) return false; v = v[k]; } return true; },
+  set(o, p, val) { const ks = __path(p); let v = o; ks.forEach((k, i) => { if (i === ks.length - 1) v[k] = val; else { if (v[k] === null || typeof v[k] !== "object") v[k] = /^\\d+$/.test(ks[i + 1]) ? [] : {}; v = v[k]; } }); return o; },
+  cloneDeep(v) { return v === undefined ? v : JSON.parse(JSON.stringify(v)); },
+  isEqual(a, b) { return JSON.stringify(a) === JSON.stringify(b); },
+  isEmpty(v) { return v === null || v === undefined || (typeof v === "object" ? Object.keys(v).length === 0 : String(v).length === 0); },
+  isNil(v) { return v === null || v === undefined; },
+  isNumber(v) { return typeof v === "number"; },
+  isString(v) { return typeof v === "string"; },
+  isArray: Array.isArray,
+  isObject(v) { return !!v && typeof v === "object"; },
+  isPlainObject: __isObj,
+  includes(c, v) { return Array.isArray(c) || typeof c === "string" ? c.includes(v) : __isObj(c) ? Object.values(c).includes(v) : false; },
+  keys(o) { return o ? Object.keys(o) : []; },
+  values(o) { return o ? Object.values(o) : []; },
+  entries(o) { return o ? Object.entries(o) : []; },
+  toPairs(o) { return o ? Object.entries(o) : []; },
+  size(c) { return c ? (Array.isArray(c) || typeof c === "string" ? c.length : Object.keys(c).length) : 0; },
+  sum(a) { return (a || []).reduce((s, x) => s + Number(x || 0), 0); },
+  sumBy(a, f) { return (a || []).reduce((s, x) => s + Number((typeof f === "function" ? f(x) : x[f]) || 0), 0); },
+  max(a) { return a && a.length ? Math.max(...a) : undefined; },
+  min(a) { return a && a.length ? Math.min(...a) : undefined; },
+  clamp(n, lo, hi) { return Math.min(Math.max(n, lo), hi); },
+  round(n, p = 0) { const m = 10 ** p; return Math.round(n * m) / m; },
+  floor: Math.floor, ceil: Math.ceil,
+  toNumber(v) { return Number(v); },
+  random(a = 0, b = 1, f) { if (b === undefined) { b = a; a = 0; } const r = a + Math.random() * (b - a); return f || !Number.isInteger(a) || !Number.isInteger(b) ? r : Math.floor(a + Math.random() * (b - a + 1)); },
+  sample(a) { return a && a.length ? a[Math.floor(Math.random() * a.length)] : undefined; },
+  shuffle(a) { const c = [...(a || [])]; for (let i = c.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [c[i], c[j]] = [c[j], c[i]]; } return c; },
+  range(a, b, s = 1) { if (b === undefined) { b = a; a = 0; } const out = []; for (let i = a; s > 0 ? i < b : i > b; i += s) out.push(i); return out; },
+  uniq(a) { return [...new Set(a || [])]; },
+  map(c, f) { return (Array.isArray(c) ? c : Object.values(c || {})).map(typeof f === "function" ? f : (x) => x[f]); },
+  filter(c, f) { return (Array.isArray(c) ? c : Object.values(c || {})).filter(f); },
+  find(c, f) { return (Array.isArray(c) ? c : Object.values(c || {})).find(f); },
+  sortBy(c, f) { const k = typeof f === "function" ? f : (x) => x[f]; return [...(c || [])].sort((x, y) => (k(x) > k(y) ? 1 : k(x) < k(y) ? -1 : 0)); },
+  merge(o, ...more) { for (const m of more) for (const [k, v] of Object.entries(m || {})) o[k] = __isObj(v) && __isObj(o[k]) ? _.merge(o[k], v) : v; return o; },
+  capitalize(s) { s = String(s || ""); return s.charAt(0).toUpperCase() + s.slice(1).toLowerCase(); },
+  trim(s) { return String(s || "").trim(); },
+};`;
+  function templateSource(templates, commands) {
+    const fns = templates.map((tpl) => `${JSON.stringify(tpl.id)}: ${templateFunction(tpl.source)}`).join(",\n");
+    return `${lockSource()}
+const __answer = self.postMessage.bind(self);
+${LODASH}
+const __s = (v) => (v === undefined || v === null ? "" : typeof v === "object" ? JSON.stringify(v) : String(v));
+let __next = 0;
+const __calls = new Map();
+const __call = (name, args) => new Promise((resolve, reject) => { const callId = ++__next; __calls.set(callId, { resolve, reject }); __answer({ call: name, callId, args: JSON.parse(JSON.stringify(args === undefined ? [] : args)) }); });
+const __commands = ${JSON.stringify(commands)};
+const __templates = {
+${fns}
+};
+self.onmessage = async (e) => {
+  const d = e.data || {};
+  if (d.callId) { const c = __calls.get(d.callId); if (!c) return; __calls.delete(d.callId); if (d.error) c.reject(new Error(d.error)); else c.resolve(d.result); return; }
+  const { id, ids, data } = d;
+  const writes = {};
+  const getvar = (key, opts) => { const v = _.get(data.scope, key); return v === undefined ? (opts && opts.defaults) : _.cloneDeep(v); };
+  const setvar = (key, value) => { if (String(key).split(".")[0] === "stat_data") throw new Error("stat_data is Pesto's: change it in a reply's block"); _.set(data.scope, key, value); writes[__path(key)[0]] = data.scope[__path(key)[0]]; return value; };
+  const incvar = (key, n = 1) => setvar(key, Number(getvar(key) || 0) + Number(n));
+  const decvar = (key, n = 1) => setvar(key, Number(getvar(key) || 0) - Number(n));
+  let depth = 0;
+  const run = async (tid) => {
+    if (++depth > 8) throw new Error("templates call each other too deep");
+    try { return await __templates[tid](h); } finally { depth--; }
+  };
+  const getwi = async (a, b) => { const name = b === undefined ? a : b; const tid = data.byName[name]; return tid && __templates[tid] ? run(tid) : __s(await __call("__entry", [b === undefined ? null : a, name])); };
+  const h = { getvar, setvar, incvar, decvar, getwi, getWorldInfo: getwi, getchar: (k) => (k ? data.card[k] : data.card), execute: (cmd) => __call("triggerSlash", [cmd]), user: data.user, char: data.char, _ };
+  for (const name of __commands) if (!(name in h)) h[name] = (...args) => __call(name, args);
+  const outputs = {};
+  const errors = {};
+  for (const tid of ids) {
+    try { outputs[tid] = __s(await run(tid)); } catch (err) { errors[tid] = String((err && err.message) || err); }
+  }
+  __answer({ id, outputs, errors, writes: JSON.parse(JSON.stringify(writes)) });
+};`;
+  }
+  var templateFunction = (source) => `async function (__h) { with (__h) {
+${compileEjs(source)}
+} }`;
+  function templateProblem(source) {
+    try {
+      return codeProblem(`(${templateFunction(source)})`);
+    } catch (e) {
+      return e instanceof Error ? e.message : String(e);
+    }
+  }
+  var TemplateRunner = class {
+    worker;
+    problems = {};
+    constructor(templates, commands) {
+      for (const tpl of templates) {
+        const problem = templateProblem(tpl.source);
+        if (problem) this.problems[tpl.id] = problem;
+      }
+      const good = templates.filter((tpl) => !this.problems[tpl.id]);
+      this.worker = new LockedWorker(() => templateSource(good, commands));
+    }
+    /** Every template's text (ids: which to run, in order); `call` answers the page commands they ask for. */
+    async run(ids, data, call, timeMs) {
+      const errors = {};
+      for (const id of ids) if (this.problems[id]) errors[id] = this.problems[id];
+      const runnable = ids.filter((id) => !this.problems[id]);
+      if (!runnable.length) return { outputs: {}, errors, writes: {} };
+      const a = await this.worker.request({ ids: runnable, data }, timeMs, call);
+      if (!a.ok) return { outputs: {}, errors: { ...errors, ...Object.fromEntries(runnable.map((id) => [id, a.error])) }, writes: {} };
+      return { outputs: a.data.outputs ?? {}, errors: { ...errors, ...a.data.errors ?? {} }, writes: a.data.writes ?? {} };
+    }
+    dispose() {
+      this.worker.dispose();
+    }
+  };
+
+  // src/ejs/service.ts
+  var STASH = "ejs";
+  var OUT_PREFIX = "fx_ejs_";
+  var CHUNK = 1e4;
+  var CHUNKS = 5;
+  var outName = (id, part) => safeName(`${OUT_PREFIX}${id.replace(/\W/g, "_")}${part > 1 ? `_${part}` : ""}`);
+  var runPlaceholder = (id) => Array.from({ length: CHUNKS }, (_2, i) => `{{getvar::${outName(id, i + 1)}}}`).join("");
+  var macroNames = {
+    story: (path) => varName(path),
+    chat: (name) => /^[A-Za-z_]\w{0,63}$/.test(name) ? name : null
+  };
+  function pairShape(v) {
+    if (v && typeof v === "object" && !Array.isArray(v)) return Object.fromEntries(Object.entries(v).map(([k2, x2]) => [k2, pairShape(x2)]));
+    return [v, ""];
+  }
+  function outChunks(id, text2) {
+    const out = {};
+    for (let i = 0; i < CHUNKS; i++) {
+      const piece = text2.slice(i * CHUNK, (i + 1) * CHUNK);
+      out[outName(id, i + 1)] = piece || (i === 0 ? "" : null);
+    }
+    return out;
+  }
+  var TemplateService = class {
+    constructor(settings) {
+      this.settings = settings;
+    }
+    runners = /* @__PURE__ */ new Map();
+    /** The page commands' names, for the templates' Worker (the same every time). */
+    commandNames = null;
+    told = /* @__PURE__ */ new Set();
+    stops = [];
+    start() {
+      this.stops.push(onGenerationStart((gen) => this.beforeReply(gen), () => this.settings.current.templates.wait * 1e3));
+    }
+    stop() {
+      for (const stop of this.stops.splice(0)) stop();
+      for (const r of this.runners.values()) r.dispose();
+      this.runners.clear();
+    }
+    /** The stash as read once (only Fornello writes it): no read of the storage each reply. */
+    stashRead = null;
+    stash() {
+      this.stashRead ??= getMarinara().storage.get().then((all) => {
+        const raw = all[STASH];
+        return raw && typeof raw === "object" && !Array.isArray(raw) ? raw : {};
+      });
+      this.stashRead.catch(() => this.stashRead = null);
+      return this.stashRead.then((s) => ({ ...s }));
+    }
+    async saveStash(next2) {
+      await getMarinara().storage.patch({ [STASH]: next2 });
+      this.stashRead = Promise.resolve({ ...next2 });
+    }
+    /** The open chat's cards' lorebook entries. */
+    async cardEntries(chatId) {
+      const cast = await chatCharacters(chatId);
+      return (await Promise.all(cast.map((c) => characterLore(c.id).catch(() => [])))).flat();
+    }
+    /** The chat's cards' templates, and what converting each does. */
+    async scan(chatId) {
+      const stash = await this.stash();
+      const out = [];
+      for (const e of await this.cardEntries(chatId)) {
+        const done = stash[e.id];
+        const source = done ? done.original : String(e.content ?? "");
+        if (!done && !hasEjs(source)) continue;
+        const macro = toMacros(source, macroNames);
+        out.push({
+          id: e.id,
+          bookId: String(e.lorebookId ?? done?.bookId ?? ""),
+          name: String(e.name ?? ""),
+          mode: done?.mode ?? ("text" in macro ? "macro" : "run"),
+          ..."why" in macro ? { why: macro.why } : {},
+          converted: !!done,
+          ...done?.mode === "run" ? { allowed: this.allowed(done.original) } : {}
+        });
+      }
+      return out;
+    }
+    /** Whether the person allowed this template (as it is now) to run: each template is answered on its own. */
+    allowed(source) {
+      return this.settings.current.templates.code[sha256(source)] === true;
+    }
+    /** Converts the chat's cards' templates (those to run only when `allowRun`); returns how many of each. */
+    async convert(chatId, allowRun) {
+      const stash = { ...await this.stash() };
+      const entries = await this.cardEntries(chatId);
+      let macro = 0;
+      let run2 = 0;
+      const runSources = [];
+      for (const e of entries) {
+        const done = stash[e.id];
+        if (done) {
+          if (done.mode === "run" && allowRun && !this.allowed(done.original)) runSources.push(done.original);
+          continue;
+        }
+        const source = String(e.content ?? "");
+        if (!hasEjs(source)) continue;
+        const bookId = String(e.lorebookId ?? "");
+        if (!bookId) continue;
+        const m2 = toMacros(source, macroNames);
+        if ("text" in m2) {
+          await patchLoreEntry(bookId, e.id, { content: m2.text });
+          stash[e.id] = { bookId, name: String(e.name ?? ""), original: source, mode: "macro" };
+          macro++;
+        } else if (allowRun) {
+          await patchLoreEntry(bookId, e.id, { content: runPlaceholder(e.id) });
+          stash[e.id] = { bookId, name: String(e.name ?? ""), original: source, mode: "run" };
+          runSources.push(source);
+          run2++;
+        }
+        await this.saveStash(stash);
+      }
+      if (runSources.length) {
+        const code = { ...this.settings.current.templates.code, ...Object.fromEntries(runSources.map((src) => [sha256(src), true])) };
+        await this.settings.set({ templates: { ...this.settings.current.templates, code } });
+      }
+      if (macro && !this.settings.current.story.vars) await this.settings.set({ story: { ...this.settings.current.story, vars: true } });
+      return { macro, run: run2 };
+    }
+    /** Puts the chat's cards' converted entries back as they were, and takes out what Fornello put in the chat's variables. */
+    async restore(chatId) {
+      const stash = { ...await this.stash() };
+      let n = 0;
+      for (const e of await this.cardEntries(chatId)) {
+        const done = stash[e.id];
+        if (!done) continue;
+        await patchLoreEntry(done.bookId, e.id, { content: done.original });
+        delete stash[e.id];
+        await this.saveStash(stash);
+        n++;
+      }
+      const vars = await macroVariables(chatId);
+      const gone = Object.fromEntries(Object.keys(vars).filter((k2) => k2.startsWith(OUT_PREFIX)).map((k2) => [k2, null]));
+      await patchMacroVariables(chatId, gone);
+      return n;
+    }
+    /** The chat's run templates, in the order of the card's entries. */
+    runTemplates(stash, entries) {
+      return entries.filter((e) => stash[e.id]?.mode === "run").map((e) => ({ id: e.id, source: stash[e.id].original, name: stash[e.id].name }));
+    }
+    /** Before a reply: runs the chat's templates, once allowed, and puts their text where their entries read it. */
+    async beforeReply(gen) {
+      const chatId = gen.chatId;
+      const stash = await this.stash();
+      if (!Object.keys(stash).length) return;
+      const entries = await this.cardEntries(chatId);
+      const all = this.runTemplates(stash, entries);
+      const templates = all.filter((x2) => this.allowed(x2.source));
+      if (templates.length < all.length) {
+        const not = all.filter((x2) => !this.allowed(x2.source)).map((x2) => x2.name);
+        this.tell(`not:${not.join("|")}`, t(`Not allowed to run (changed since, or never allowed): ${not.join(", ")}. Press Convert in the settings to allow them.`, `실행이 허락되지 않은 템플릿(그 뒤 바뀌었거나 허락 안 함): ${not.join(", ")}. 설정에서 변환을 눌러 허락해 주세요.`));
+      }
+      if (!templates.length) return;
+      const hash = sha256(templates.map((x2) => `${x2.id}\0${x2.source}`).join(""));
+      const data = await this.data(chatId, gen, templates);
+      const report = (m2) => showToast(t(`Template: ${m2}`, `템플릿: ${m2}`), "warning");
+      let api2 = null;
+      const page = async () => api2 ??= await pageApi({ messageId: null, report, ui: screenUi });
+      try {
+        let commands = this.commandNames;
+        if (!commands) {
+          const globals = (await page()).globals;
+          this.commandNames = commands = Object.keys(globals).filter((k2) => typeof globals[k2] === "function");
+        }
+        let runner = this.runners.get(hash);
+        if (!runner) this.runners.set(hash, runner = new TemplateRunner(templates, commands));
+        const call = async (name, args) => {
+          if (name === "__entry") return this.entryText(entries, args[0], args[1]);
+          const fn = (await page()).globals[name];
+          if (typeof fn !== "function") throw new Error(t(`there is no page command "${name}"`, `"${name}"라는 페이지 명령이 없어요`));
+          return fn(...args);
+        };
+        const result = await runner.run(
+          templates.map((x2) => x2.id),
+          data,
+          call,
+          Math.max(1e3, this.settings.current.templates.wait * 1e3 - 700)
+        );
+        const out = {};
+        for (const tpl of templates) Object.assign(out, outChunks(tpl.id, result.outputs[tpl.id] ?? ""));
+        await patchMacroVariables(chatId, out);
+        if (Object.keys(result.writes).length) await writeVariables(result.writes, {}, chatId);
+        const failed = Object.entries(result.errors);
+        if (failed.length) {
+          console.warn("[Fornello] templates:", result.errors);
+          const first = templates.find((x2) => x2.id === failed[0][0]);
+          this.tell(`${hash}:${failed.map(([id, why]) => `${id}${why}`).join("|")}`, t(`“${first?.name}” didn't run: ${failed[0][1]}${failed.length > 1 ? ` (and ${failed.length - 1} more, in the console)` : ""}`, `“${first?.name}” 실행 실패: ${failed[0][1]}${failed.length > 1 ? ` (외 ${failed.length - 1}개, 콘솔에 있어요)` : ""}`));
+        }
+      } finally {
+        api2?.dispose();
+      }
+    }
+    tell(key, text2) {
+      if (this.told.has(key)) return;
+      this.told.add(key);
+      showToast(text2, "warning");
+    }
+    /** What the templates read: the chat's variables and Pesto's values (before this reply), names, the card. */
+    async data(chatId, gen, templates) {
+      const [vars, cast, me2, messages] = await Promise.all([readVariables(chatId).catch(() => ({})), chatCharacters(chatId), persona(chatId), listMessages(chatId, { fresh: true })]);
+      const before = messagesBefore(messages, gen);
+      const story = storyAccess();
+      const view = story ? await story.at(chatId, before.at(-1)?.id ?? null).catch(() => null) : null;
+      const card = story?.cardOf ? await story.cardOf(chatId).catch(() => null) : null;
+      const scope = { ...vars };
+      if (view) scope.stat_data = card?.from === "initvar" ? pairShape(view.values) : view.values;
+      const c = cast[0];
+      return {
+        scope,
+        user: me2.name,
+        char: c?.name ?? "",
+        card: c ? { name: c.name, description: c.description, personality: c.personality, scenario: c.scenario, first_mes: c.firstMessage } : {},
+        byName: Object.fromEntries(templates.map((x2) => [x2.name, x2.id]))
+      };
+    }
+    /** Another entry's text for getwi: by its name (or comment), among the chat's cards' entries (the book's name isn't needed to find it). */
+    entryText(entries, _book, name) {
+      const want = String(name ?? "").trim();
+      const found = entries.find((e) => String(e.name ?? "").trim() === want || String(e.comment ?? "").trim() === want);
+      return String(found?.content ?? "");
+    }
+  };
+
+  // src/ui/story-graph.ts
+  function linePath(values2, lo, hi2) {
+    const n = values2.length;
+    const x2 = (i) => n > 1 ? i / (n - 1) * 100 : 50;
+    const y2 = (v) => 100 - (v - lo) / (hi2 - lo) * 100;
+    let d2 = "";
+    let pen = false;
+    values2.forEach((v, i) => {
+      if (v === null) {
+        pen = false;
+        return;
+      }
+      d2 += `${pen ? "L" : "M"}${round(x2(i))} ${round(y2(v))}`;
+      pen = true;
+    });
+    return d2;
+  }
+  var round = (v) => Math.round(v * 100) / 100;
+  function rangeOf(values2) {
+    const nums = values2.filter((v) => v !== null);
+    if (!nums.length) return null;
+    const min = Math.min(...nums);
+    const max = Math.max(...nums);
+    const pad = max === min ? Math.max(1, Math.abs(max) * 0.1) : (max - min) * 0.12;
+    return { lo: min - pad, hi: max + pad, min, max };
+  }
+  var show = (v) => Number.isInteger(v) ? String(v) : v.toFixed(2).replace(/\.?0+$/, "");
+  var GRAPH_CSS = `
+.graphs { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 10px; }
+.graph { display: grid; gap: 2px; }
+.graph .top { display: flex; align-items: baseline; gap: 6px; font-size: 12px; }
+.graph .name { color: var(--d-title); font-family: var(--d-mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
+.graph .now { color: var(--d-text); font-variant-numeric: tabular-nums; }
+.graph .span { color: var(--d-muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+.graph .plot { position: relative; height: 56px; cursor: pointer; border-bottom: 1px solid var(--d-line); touch-action: pan-y; }
+.graph svg { position: absolute; inset: 4px 0; width: 100%; height: calc(100% - 8px); overflow: visible; }
+.graph path.line { fill: none; stroke: var(--d-accent); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; vector-effect: non-scaling-stroke; }
+.graph .mark, .graph .hair { position: absolute; top: 0; bottom: 0; width: 0; border-left: 1px dashed var(--d-muted); opacity: .55; pointer-events: none; }
+.graph .hair { border-left-style: solid; opacity: .8; display: none; }
+.graph .dot { position: absolute; width: 8px; height: 8px; margin: -4px 0 0 -4px; border-radius: 50%; background: var(--d-accent); box-shadow: 0 0 0 2px var(--d-panel, #141414); pointer-events: none; display: none; }
+.graph .tip { position: absolute; top: -4px; transform: translate(-50%, -100%); padding: 2px 6px; border-radius: 6px; font-size: 11px; white-space: nowrap; color: var(--d-text); background: var(--d-field); border: 1px solid var(--d-line); pointer-events: none; display: none; font-variant-numeric: tabular-nums; z-index: 1; }
+.graph .plot:hover .hair, .graph .plot:hover .dot, .graph .plot:hover .tip { display: block; }
+`;
+  function valueGraph(g) {
+    const range = rangeOf(g.values);
+    if (!range) return null;
+    const n = g.values.length;
+    const xPct = (i) => n > 1 ? i / (n - 1) * 100 : 50;
+    const yPct = (v) => 4 / 56 * 100 + (100 - (v - range.lo) / (range.hi - range.lo) * 100) * (48 / 56);
+    const svg3 = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    svg3.setAttribute("viewBox", "0 0 100 100");
+    svg3.setAttribute("preserveAspectRatio", "none");
+    svg3.setAttribute("aria-hidden", "true");
+    const line = document.createElementNS("http://www.w3.org/2000/svg", "path");
+    line.setAttribute("class", "line");
+    line.setAttribute("d", linePath(g.values, range.lo, range.hi));
+    svg3.append(line);
+    const hair = el("div", { className: "hair" });
+    const dot = el("div", { className: "dot" });
+    const tip = el("div", { className: "tip" });
+    const mark = el("div", { className: "mark", style: `left:${xPct(g.selected)}%` });
+    const nearest = (clientX, box) => {
+      const raw = n > 1 ? Math.round((clientX - box.left) / Math.max(1, box.width) * (n - 1)) : 0;
+      let best = -1;
+      for (let d2 = 0; d2 < n && best < 0; d2++) {
+        if (g.values[raw - d2] !== null && g.values[raw - d2] !== void 0) best = raw - d2;
+        else if (g.values[raw + d2] !== null && g.values[raw + d2] !== void 0) best = raw + d2;
+      }
+      return best;
+    };
+    const point = (i) => {
+      const v = g.values[i];
+      for (const x2 of [hair, dot, tip]) x2.style.left = `${xPct(i)}%`;
+      dot.style.top = `${yPct(v)}%`;
+      tip.textContent = `#${g.nums[i]} · ${show(v)}`;
+    };
+    const last = [...g.values.keys()].reverse().find((i) => g.values[i] !== null) ?? 0;
+    point(last);
+    const plot = el(
+      "div",
+      {
+        className: "plot",
+        onpointermove: (e) => {
+          const i = nearest(e.clientX, e.currentTarget.getBoundingClientRect());
+          if (i >= 0) point(i);
+        },
+        onclick: (e) => {
+          const i = nearest(e.clientX, e.currentTarget.getBoundingClientRect());
+          if (i >= 0) g.pick(i);
+        }
+      },
+      svg3,
+      mark,
+      hair,
+      dot,
+      tip
+    );
+    const first = g.values.find((v) => v !== null);
+    return el(
+      "div",
+      { className: "graph", role: "img", "aria-label": `${g.path}: ${show(first)} → ${show(g.values[last])} (${show(range.min)}–${show(range.max)})`, "data-path": g.path },
+      el("div", { className: "top" }, el("span", { className: "name", title: g.path }, g.path), el("span", { className: "now" }, show(g.values[last])), el("span", { className: "span" }, `${show(range.min)}–${show(range.max)}`)),
+      plot
+    );
+  }
+
+  // src/ui/story-values.ts
+  var STYLE10 = `
+${THEME_TOKENS}
+:host { position: fixed; inset: 0; z-index: 2147482700; }
+* { box-sizing: border-box; }
+${CONTROLS}
+${FORM_CSS}
+${BACKDROP_CSS}
+${TABS_CSS}
+details.part { border: 1px solid var(--d-line); border-radius: var(--d-radius-sm); padding: 6px 10px; margin-bottom: 10px; }
+details.part > summary { cursor: pointer; color: var(--d-muted); font-size: 12px; }
+details.part[open] > summary { margin-bottom: 6px; }
+.win { width: min(760px, 100%); height: min(860px, 100%); display: flex; flex-direction: column; overflow: hidden;
+  font: 13px/1.45 var(--d-font); color: var(--d-text); background: var(--d-panel-solid); border: 1px solid var(--d-line); border-radius: var(--d-radius); box-shadow: var(--d-shadow); }
+header { display: flex; align-items: center; gap: 8px; padding: 10px 14px; border-bottom: 1px solid var(--d-divider); flex-wrap: wrap; }
+header h2 { margin: 0; font-size: 15px; color: var(--d-title); flex: 1; white-space: nowrap; }
+header .pick { display: flex; align-items: center; gap: 8px; min-width: 0; }
+header select { width: auto; max-width: 22em; min-width: 0; }
+/* a phone: the message picker gets its own row under the title and ✕ */
+@media (max-width: 520px) {
+  header .pick { order: 3; flex: 1 0 100%; }
+  header .pick select { flex: 1; max-width: none; }
+}
+main { flex: 1; min-height: 0; overflow: auto; padding: 8px 14px 18px; }
+.note { color: var(--d-muted); font-size: 12px; }
+.vals { display: grid; grid-template-columns: minmax(8em, max-content) minmax(0, 1fr) auto; gap: 6px 10px; align-items: center; }
+.vals .path { font: 12px var(--d-mono); color: var(--d-muted); overflow-wrap: anywhere; }
+.vals input, .vals select, .vals textarea { width: 100%; min-width: 0; font-size: 12px; padding: 3px 6px; }
+.vals textarea { font: 12px/1.4 var(--d-mono); min-height: 2.4em; resize: vertical; }
+.vals .computed { font: 12px var(--d-mono); }
+.badge { font-size: 11px; padding: 0 6px; border-radius: 999px; border: 1px solid var(--d-line); color: var(--d-muted); white-space: nowrap; }
+.badge.mine { border-color: var(--d-btn-border-active); color: var(--d-text); }
+button.mini { padding: 1px 6px; font-size: 11px; min-width: 0; }
+ul.log { margin: 0; padding-left: 18px; font-size: 12px; }
+${GRAPH_CSS}
+textarea.try { width: 100%; box-sizing: border-box; font: 12px/1.45 var(--d-mono); resize: vertical; }
+.tried { margin-top: 6px; display: grid; gap: 4px; }
+ul.log li { overflow-wrap: anywhere; }
+.bad { color: var(--d-danger, #e5484d); }
+pre.code { margin: 0; max-height: 260px; overflow: auto; font: 11px/1.45 var(--d-mono); padding: 8px; border: 1px solid var(--d-line); border-radius: var(--d-radius-sm); background: var(--d-field); white-space: pre; }
+`;
+  var show2 = (v) => v === null || v === void 0 ? "—" : typeof v === "object" ? JSON.stringify(v) : String(v);
+  function typedValue(field2, text2) {
+    switch (field2.kind) {
+      case "number":
+      case "int": {
+        const n = Number(text2.trim());
+        if (text2.trim() === "" || !Number.isFinite(n)) throw new Error(t("Needs a number.", "숫자를 넣어 주세요."));
+        return n;
+      }
+      case "bool":
+        return text2 === "true";
+      case "text":
+      case "enum":
+        return text2;
+      default:
+        try {
+          return JSON.parse(text2);
+        } catch {
+          if (field2.kind === "any") return text2;
+          throw new Error(t('Needs JSON, like ["rope"] or {"mina": 3}.', 'JSON으로 넣어 주세요. 예: ["rope"], {"mina": 3}'));
+        }
+    }
+  }
+  var StoryValues = class {
+    element = null;
+    root = null;
+    returnFocus = null;
+    chatId = null;
+    messages = [];
+    /** The message whose values are shown (null: the last). */
+    messageId = null;
+    view = null;
+    code = null;
+    loaded = false;
+    /** The card's entries: their problems, and a converted card's entries written out. */
+    card = null;
+    /** The number values over the last messages, for the graphs. */
+    history = null;
+    /** The reply being tried, and what it would do. */
+    tryText = "";
+    tried = null;
+    stopWatch = null;
+    /** The tabs of Fornello's window (main.ts sets it). */
+    tabs = null;
+    /** Pesto's settings and the cards' templates, at the top of the tab. */
+    settingsPart = null;
+    partOpen = false;
+    /** The scripts' buttons put on this tab. */
+    buttons = null;
+    async open() {
+      if (!this.element) {
+        this.element = document.createElement("div");
+        this.element.id = "fornello-story";
+        this.root = this.element.attachShadow({ mode: "open" });
+        this.returnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+        document.addEventListener("keydown", this.onKey, true);
+        document.body.append(this.element);
+        this.stopWatch = onStoryChange((chatId) => {
+          if (chatId === this.chatId) void this.load();
+        });
+      }
+      this.chatId = currentChatId();
+      this.messageId = null;
+      await this.load();
+    }
+    close() {
+      document.removeEventListener("keydown", this.onKey, true);
+      this.stopWatch?.();
+      this.stopWatch = null;
+      const wasOpen = !!this.element;
+      this.element?.remove();
+      this.element = null;
+      this.root = null;
+      if (wasOpen && this.returnFocus?.isConnected) this.returnFocus.focus();
+    }
+    /** Redraws when open (the language changed). */
+    refresh() {
+      if (this.element) this.render();
+    }
+    onKey = (e) => {
+      if (e.key === "Escape" && this.element) {
+        e.stopPropagation();
+        this.close();
+      }
+    };
+    async load() {
+      const chatId = this.chatId;
+      this.loaded = false;
+      this.render();
+      if (!chatId) {
+        this.view = null;
+        this.loaded = true;
+        this.render();
+        return;
+      }
+      try {
+        this.messages = await listMessages(chatId, { fresh: true });
+        if (this.messageId && !this.messages.some((m2) => m2.id === this.messageId)) this.messageId = null;
+        const access2 = storyAccess();
+        this.view = await access2?.at(chatId, this.messageId) ?? null;
+        const [code, card, history] = this.view ? await Promise.all([access2?.codeOf?.(chatId), access2?.cardOf?.(chatId), access2?.history?.(chatId)]) : [];
+        this.code = code ?? null;
+        this.card = card ?? null;
+        this.history = history ?? null;
+        this.tried = null;
+      } catch (e) {
+        this.view = null;
+        showToast(e instanceof Error ? e.message : String(e), "warning");
+      }
+      if (chatId !== this.chatId) return;
+      this.loaded = true;
+      this.render();
+    }
+    async save(path, value2) {
+      const chatId = this.chatId;
+      const messageId = this.messageId ?? this.messages.at(-1)?.id;
+      if (!chatId || !messageId) return;
+      try {
+        await storyAccess()?.edit(chatId, messageId, [{ path, value: value2 }]);
+      } catch (e) {
+        showToast(e instanceof Error ? e.message : String(e), "warning");
+        await this.load();
+      }
+    }
+    render() {
+      if (!this.root) return;
+      const scroll = this.root.querySelector("main")?.scrollTop ?? 0;
+      const shownId = this.messageId ?? this.messages.at(-1)?.id ?? "";
+      const select = el(
+        "select",
+        {
+          "aria-label": t("After message", "메시지 다음"),
+          "data-key": "story-message",
+          disabled: !this.messages.length,
+          onchange: (e) => {
+            const id = e.target.value;
+            this.messageId = id === this.messages.at(-1)?.id ? null : id;
+            void this.load();
+          }
+        },
+        ...this.messages.map(
+          (m2) => el("option", { value: m2.id, selected: m2.id === shownId }, `#${m2.num} ${m2.name}: ${m2.text.replace(/```[\s\S]*?(```|$)/g, "").replace(/\s+/g, " ").trim().slice(0, 40) || "…"}`)
+        )
+      );
+      const head = el(
+        "header",
+        {},
+        ...this.tabs ? tabHeader("status", this.tabs) : [el("h2", {}, t("📜 Status", "📜 상태창"))],
+        el("button", { className: "ghost", "aria-label": t("Close", "닫기"), onclick: () => this.close() }, "✕")
+      );
+      const part = this.settingsPart ? el("details", { className: "part", open: this.partOpen, ontoggle: (e) => this.partOpen = e.target.open }, el("summary", {}, t("Settings", "설정")), ...this.settingsPart()) : null;
+      const buttons = this.buttons?.() ?? [];
+      const pressable = buttons.length ? el("div", { className: "row", style: "margin-bottom:10px;flex-wrap:wrap" }, ...buttons.map((b2) => el("button", { title: t(`Script: ${b2.script}`, `스크립트: ${b2.script}`), onclick: () => b2.press() }, b2.label))) : null;
+      const main = el("main", {}, part, pressable, el("div", { className: "pick", style: "margin-bottom:8px" }, el("span", { className: "note" }, t("after", "기준 메시지")), select), ...this.body());
+      const win = el("div", { className: `win${this.tabs ? " tabbed" : ""}`, role: "dialog", "aria-modal": "true", "aria-label": t("Status", "상태창"), tabIndex: -1 }, head, main);
+      const back = el("div", { className: "back", onclick: (e) => e.target === back && this.close() }, win);
+      this.root.replaceChildren(el("style", {}, STYLE10), back);
+      const newMain = this.root.querySelector("main");
+      if (newMain) newMain.scrollTop = scroll;
+    }
+    body() {
+      if (!this.loaded) return [el("div", { className: "note" }, t("Reading…", "읽는 중…"))];
+      if (!this.chatId) return [el("div", { className: "note" }, t("Open a chat first.", "먼저 채팅을 여세요."))];
+      const view = this.view;
+      if (!view)
+        return [
+          el(
+            "div",
+            { className: "note" },
+            t(
+              "This chat has no Pesto: turn it on in the settings, for a card with a pesto:schema lorebook entry.",
+              "이 채팅에는 Pesto가 없어요. 설정에서 켜고, 로어북에 pesto:schema 항목이 있는 카드로 써 보세요."
+            )
+          )
+        ];
+      return [this.valuesSection(view), this.turnSection(view), ...this.graphSection(), this.trySection(), ...this.card ? [this.cardSection(this.card)] : [], ...this.code ? [this.codeSection(this.code)] : []];
+    }
+    valuesSection(view) {
+      const rows = [];
+      const mine = new Set(view.edits.map((e) => e.path));
+      const walk2 = (field2, values2, prefix) => {
+        for (const [name, f] of Object.entries(field2.fields ?? {})) {
+          const path = prefix ? `${prefix}.${name}` : name;
+          const value2 = values2?.[name];
+          if (f.kind === "object") {
+            walk2(f, value2 && typeof value2 === "object" ? value2 : {}, path);
+            continue;
+          }
+          const writable = fieldAt(view.def.schema.root, path.split("."))?.write.includes("user") ?? false;
+          rows.push(el("div", { className: "path", title: t(`Marinara variable: ${varName(path)}`, `마리나라 변수: ${varName(path)}`) }, path), this.input(f, path, value2, writable), this.badges(f, path, mine.has(path), writable));
+        }
+      };
+      walk2(view.def.schema.root, view.values, "");
+      for (const [name, v] of Object.entries(view.derived)) rows.push(el("div", { className: "path" }, name), el("div", { className: "computed" }, show2(v)), el("span", { className: "badge" }, t("computed", "계산값")));
+      return section(
+        t("Values", "값"),
+        t(
+          "Set a value here: it is kept on this message as your change, counted after the AI's. ✕ takes your change back",
+          "여기서 값을 바꾸면 이 메시지에 내 변경으로 저장되고, AI의 변경 다음에 적용돼요. ✕를 누르면 내 변경을 되돌려요"
+        ),
+        [],
+        el("div", { className: "vals" }, ...rows)
+      );
+    }
+    input(f, path, value2, writable) {
+      const label = t(`Value of ${path}`, `${path} 값`);
+      const commit = (text2) => {
+        let v;
+        try {
+          v = typedValue(f, text2);
+        } catch (e) {
+          showToast(e instanceof Error ? e.message : String(e), "warning");
+          return;
+        }
+        void this.save(path, v);
+      };
+      if (f.kind === "enum" || f.kind === "bool") {
+        const options = f.kind === "bool" ? ["true", "false"] : f.values ?? [];
+        return el(
+          "select",
+          { "aria-label": label, "data-key": `story-${path}`, disabled: !writable, onchange: (e) => commit(e.target.value) },
+          ...options.map((o2) => el("option", { value: o2, selected: String(value2) === o2 }, o2))
+        );
+      }
+      if (f.kind === "number" || f.kind === "int" || f.kind === "text")
+        return el("input", {
+          type: f.kind === "text" ? "text" : "number",
+          value: value2 === null || value2 === void 0 ? "" : String(value2),
+          "aria-label": label,
+          "data-key": `story-${path}`,
+          disabled: !writable,
+          onchange: (e) => commit(e.target.value)
+        });
+      return el("textarea", {
+        value: JSON.stringify(value2 ?? null),
+        "aria-label": label,
+        "data-key": `story-${path}`,
+        disabled: !writable,
+        onchange: (e) => commit(e.target.value)
+      });
+    }
+    badges(f, path, mine, writable) {
+      const out = el("span", { className: "row" });
+      if (mine)
+        out.append(
+          el("span", { className: "badge mine" }, t("your change", "내 변경")),
+          el("button", { className: "mini ghost", title: t("Take your change back", "내 변경 되돌리기"), "aria-label": t(`Take back your change of ${path}`, `${path}의 내 변경 되돌리기`), onclick: () => void this.save(path, null) }, "✕")
+        );
+      else if (!writable) out.append(el("span", { className: "badge" }, t("fixed", "고정")));
+      if (f.hidden || path.split(".").some((p2) => p2.startsWith("_"))) out.append(el("span", { className: "badge" }, t("hidden from the AI", "AI에게 숨김")));
+      return out;
+    }
+    /** The card's code: what it is, and whether it may run. */
+    /** The number values over the chat, a small graph each; a click shows that message. */
+    graphSection() {
+      const h3 = this.history;
+      if (!h3 || h3.ids.length < 2) return [];
+      const shownId = this.messageId ?? h3.ids.at(-1);
+      const pick2 = (i) => {
+        const id = h3.ids[i];
+        this.messageId = id === this.messages.at(-1)?.id ? null : id;
+        void this.load();
+      };
+      const graphs = Object.entries(h3.series).filter(([, values2]) => values2.filter((v) => v !== null).length >= 2).slice(0, 12).map(([path, values2]) => valueGraph({ path, values: values2, nums: h3.nums, selected: Math.max(0, h3.ids.indexOf(shownId)), pick: pick2 })).filter((g) => !!g);
+      if (!graphs.length) return [];
+      return [
+        section(
+          t("Over the chat", "흐름"),
+          t(
+            `The number values over the last ${h3.ids.length} messages; the dashed line is the message shown above. Point at a graph for a message's value, click to show that message`,
+            `최근 메시지 ${h3.ids.length}개 동안의 숫자 값이에요. 점선은 위에서 고른 메시지예요. 그래프에 올리면 그 메시지의 값이 보이고, 누르면 그 메시지로 가요`
+          ),
+          [],
+          el("div", { className: "graphs" }, ...graphs)
+        )
+      ];
+    }
+    /** For card makers: a reply tried after the chosen message, without saving anything. */
+    trySection() {
+      const box = el("textarea", {
+        className: "try",
+        rows: 4,
+        "aria-label": t("A reply to try", "시험할 답장"),
+        "data-key": "story-try-text",
+        placeholder: t("Ari falls.\n```pesto\nhp -= 5\n```", "아리가 넘어졌다.\n```pesto\nhp -= 5\n```"),
+        oninput: (e) => this.tryText = e.target.value
+      });
+      box.value = this.tryText;
+      const run2 = async () => {
+        const chatId = this.chatId;
+        if (!chatId || !this.tryText.trim()) return;
+        try {
+          const out = await storyAccess()?.tryReply?.(chatId, this.messageId, this.tryText);
+          this.tried = out ? { turn: out.turn, values: out.values } : null;
+        } catch (e) {
+          showToast(e instanceof Error ? e.message : String(e), "warning");
+        }
+        this.render();
+      };
+      const tried = this.tried;
+      const by = (c) => c.by === "ai" ? "AI" : c.by === "rules" ? t("rules", "규칙") : c.by === "user" ? t("you", "나") : "";
+      return section(
+        t("Try a reply", "답장 시험해 보기"),
+        t(
+          "For making a card: paste a reply (with its block) to see what it would change after the message chosen above, and what would be refused. Nothing is saved, and the card's code runs without its effects",
+          "카드를 만들 때 써요. 답장(블록 포함)을 붙여 넣으면, 위에서 고른 메시지 다음에 왔을 때 무엇이 바뀌고 무엇이 거부되는지 보여 줘요. 아무것도 저장하지 않고, 카드 코드는 효과 없이 돌아요"
+        ),
+        [el("button", { className: "mini", "data-key": "story-try", onclick: () => void run2() }, t("Try", "시험"))],
+        box,
+        tried ? el(
+          "div",
+          { className: "tried" },
+          tried.turn.changes.length ? el("ul", { className: "log" }, ...tried.turn.changes.map((c) => el("li", {}, `${c.path}: ${show2(c.from)} → ${show2(c.to)} · ${by(c)}${c.event ? ` (${c.event})` : ""}${c.clamped ? t(" · kept within limits", " · 범위 안으로") : ""}`))) : el("div", { className: "note" }, t("It would change nothing.", "바뀌는 값이 없어요.")),
+          tried.turn.problems.length ? el("div", { className: "note" }, t("Would not be applied:", "적용 안 될 것:")) : null,
+          tried.turn.problems.length ? el("ul", { className: "log" }, ...tried.turn.problems.map((p2) => el("li", { className: "bad" }, `${p2.path ?? (p2.event ? `do ${p2.event}` : "")}${p2.path || p2.event ? ": " : ""}${p2.detail ?? p2.why}`))) : null,
+          tried.turn.effects?.length ? el("div", { className: "note" }, t(`Effects it would ask for: ${tried.turn.effects.map((e) => e.cmd).join(", ")}`, `부탁할 효과: ${tried.turn.effects.map((e) => e.cmd).join(", ")}`)) : null
+        ) : null
+      );
+    }
+    /** The card's entries: what is wrong in them, and a card read from its own variable data written as Fornello's entries, to copy. */
+    cardSection(card) {
+      const copy = (text2) => void navigator.clipboard.writeText(text2).then(() => showToast(t("Copied.", "복사했어요."), "info")).catch(() => showToast(t("Could not copy: select the text and copy it.", "복사하지 못했어요. 글을 골라서 복사해 주세요."), "warning"));
+      const from = card.from === "initvar" ? t("the card's [InitVar] entries", "카드의 [InitVar] 항목") : card.from === "tags" ? t("the starting tags of the first message", "첫 메시지의 시작 태그") : "";
+      return section(
+        t("The card's entries", "카드 항목"),
+        t(
+          "What is wrong in the card's Pesto entries; for a card read from another system's data, that data written as pesto:schema and pesto:start, to copy into its lorebook",
+          "카드의 Pesto 항목에서 문제 있는 곳이에요. 다른 방식의 데이터로 읽은 카드라면, 그 데이터를 pesto:schema와 pesto:start로 바꾼 것을 복사해 로어북에 넣을 수 있어요"
+        ),
+        [
+          ...card.schema ? [el("button", { className: "mini", "data-key": "story-copy-schema", onclick: () => copy(card.schema) }, t("Copy pesto:schema", "pesto:schema 복사"))] : [],
+          ...card.start ? [el("button", { className: "mini", "data-key": "story-copy-start", onclick: () => copy(card.start) }, t("Copy pesto:start", "pesto:start 복사"))] : []
+        ],
+        from ? el("div", { className: "note" }, t(`Read from ${from}.`, `${from}에서 읽었어요.`)) : null,
+        card.schemaFrom ? el("div", { className: "note" }, t("Kinds and ranges from the card's script.", "종류와 범위는 카드 스크립트에서 읽었어요.")) : null,
+        card.problems.length ? el("ul", { className: "log" }, ...card.problems.map((p2) => el("li", { className: "bad" }, `pesto:${p2.entry} ${p2.path || t("(top)", "(맨 위)")}: ${p2.why}`))) : el("div", { className: "note" }, t("No problems.", "문제없어요.")),
+        card.schema ? el("pre", { className: "code" }, card.schema) : null
+      );
+    }
+    codeSection(code) {
+      const answer = (allow) => void storyAccess()?.answerCode?.(code.hash, allow).then(() => this.load()).catch((e) => showToast(e instanceof Error ? e.message : String(e), "warning"));
+      const state2 = code.allowed === true ? t("Runs", "실행 중") : code.allowed === false ? t("Not allowed", "허락 안 함") : t("Not answered yet", "아직 답하지 않음");
+      return section(
+        t("The card's code", "카드의 코드"),
+        t(
+          "pesto:code: run after each reply in a Worker cut off from the network; its changes are checked like the rules', its effects are page commands, run once for a new reply",
+          "pesto:code: 답변마다 네트워크가 막힌 Worker에서 돌아요. 바꾸는 값은 규칙처럼 검사하고, 효과는 페이지 명령으로 새 답변에 한 번만 실행해요"
+        ),
+        [
+          el("span", { className: "badge" }, state2),
+          code.allowed === true ? el("button", { className: "mini", "data-key": "story-code-stop", onclick: () => answer(false) }, t("Stop allowing", "허락 취소")) : el("button", { className: "mini", "data-key": "story-code-allow", onclick: () => answer(true) }, t("Allow", "허락"))
+        ],
+        el("pre", { className: "code" }, code.code)
+      );
+    }
+    turnSection(view) {
+      const turn = view.turn;
+      const by = (c) => (
+        // a reply without its own block: what "the AI" changed is the helper model's block
+        c.by === "ai" ? view.filled !== void 0 ? t("helper model", "보조 모델") : "AI" : c.by === "rules" ? t("rules", "규칙") : c.by === "user" ? t("you", "나") : c.by === "start" ? t("start", "시작") : ""
+      );
+      const changes = (turn?.changes ?? []).map(
+        (c) => el("li", {}, `${c.path}: ${show2(c.from)} → ${show2(c.to)} · ${by(c)}${c.event ? ` (${c.event})` : ""}${c.clamped ? t(" · kept within limits", " · 범위 안으로") : ""}`)
+      );
+      const problems = (turn?.problems ?? []).map((p2) => el("li", { className: "bad" }, `${p2.path ?? (p2.event ? `do ${p2.event}` : "")}${p2.path || p2.event ? ": " : ""}${p2.detail ?? p2.why} · ${by(p2)}`));
+      const dice = turn?.dice ? Object.entries(turn.dice).map(([k2, v]) => `${k2} ${show2(v)}`).join(", ") : "";
+      return section(
+        t("This message", "이 메시지"),
+        void 0,
+        [],
+        dice ? el("div", { className: "note" }, t(`Dice: ${dice}`, `주사위: ${dice}`)) : null,
+        view.filled === void 0 ? null : el(
+          "div",
+          { className: "note" },
+          view.filled ? t("The reply had no change block: the helper model filled one in.", "답장에 변경 블록이 없어서 보조 모델이 채웠어요.") : t("The reply had no change block: the helper model found no change.", "답장에 변경 블록이 없었고, 보조 모델도 바뀐 걸 찾지 못했어요.")
+        ),
+        changes.length ? el("ul", { className: "log" }, ...changes) : el("div", { className: "note" }, t("It changed nothing.", "바꾼 값이 없어요.")),
+        problems.length ? el("div", { className: "note" }, t("Not applied:", "적용 안 됨:")) : null,
+        problems.length ? el("ul", { className: "log" }, ...problems) : null
+      );
+    }
+  };
 
   // src/main.ts
   async function start() {
@@ -38949,9 +45535,30 @@ button.primary { border-color: var(--d-btn-border-active); color: var(--d-btn-te
       showToast(t("Settings could not be read: until a reload, pages run only on a click.", "설정을 읽지 못해서, 다시 불러올 때까지 페이지는 눌러야 실행돼요."), "warning");
     }
     const panel = new SettingsPanel(settings);
-    const openSettings = (componentId) => panel.open(componentId);
-    const chat = new ChatPages(settings, { openSettings: () => openSettings() });
+    const openSettings = (componentId, gear = false) => {
+      go("components", { gear });
+      if (componentId) panel.open(componentId);
+    };
+    const chat = new ChatPages(settings, { openSettings: () => openSettings(void 0, true) });
     chat.start();
+    const assets = new ChatAssets(settings);
+    assets.start();
+    const storyAsk = new ScriptAskPopup();
+    const storyValues = new StoryValues();
+    const storyAsks = [];
+    const story = new StoryState(settings, {
+      ask: (ask) => {
+        storyAsks.push(ask);
+        storyAsk.show([...storyAsks]);
+      },
+      showCode: () => go("status")
+    });
+    story.start();
+    const templates = new TemplateService(settings);
+    templates.start();
+    const parts = new SettingsParts(settings);
+    parts.templates = templates;
+    const assetManager = new AssetManager(() => (assets.reset(), forgetPageAssets()));
     const components = new ComponentHost(settings, {
       openSettings,
       report: (name, message) => showToast(`${name}: ${message}`, "warning")
@@ -38959,16 +45566,32 @@ button.primary { border-color: var(--d-btn-border-active); color: var(--d-btn-te
     components.start();
     panel.onChatComponents = () => components.reset();
     const askPopup = new ScriptAskPopup();
-    const scriptButtons = new ScriptButtons();
+    const scriptButtons = new ScriptButtons(settings);
     scriptButtons.start();
     const scripts = new ScriptHost(settings, {
-      openScripts: () => void library.open(),
+      openScripts: () => go("scripts"),
       report: (name, message) => showToast(`${name}: ${message}`, "warning"),
       ask: (asks) => askPopup.show(asks),
       buttons: (list) => scriptButtons.set(list)
     });
     const library = new ScriptLibrary(settings, scripts);
-    panel.attachScripts(scripts, () => void library.open());
+    const views = { components: panel, scripts: library, assets: assetManager, status: storyValues };
+    const go = (tab, options) => {
+      for (const [name, view] of Object.entries(views)) if (name !== tab) view.close();
+      if (tab === "components") {
+        panel.open();
+        if (options?.gear) panel.openGear();
+      } else void views[tab].open();
+    };
+    panel.tabs = library.tabs = assetManager.tabs = storyValues.tabs = go;
+    assetManager.settingsPart = () => parts.assetsSection();
+    storyValues.settingsPart = () => [parts.storySection(), parts.templatesSection()];
+    storyValues.buttons = () => scriptButtons.onStatus();
+    scriptButtons.onChange = () => storyValues.refresh();
+    parts.redraw = () => {
+      assetManager.refresh();
+      storyValues.refresh();
+    };
     scripts.start();
     setLibraryStore({
       global: () => settings.current.scripts,
@@ -38980,12 +45603,7 @@ button.primary { border-color: var(--d-btn-border-active); color: var(--d-btn-te
       id: "fornello",
       name: "Fornello",
       order: 20,
-      items: () => [
-        { icon: MENU_ICONS.flame, label: t("Fornello settings", "Fornello 설정"), run: () => openSettings() },
-        { icon: MENU_ICONS.panel, label: t("Components", "컴포넌트"), run: () => panel.openComponents() },
-        { icon: MENU_ICONS.scroll, label: t("Script library", "스크립트 보관함"), run: () => void library.open() },
-        ...scriptButtons.menuItems()
-      ]
+      items: () => [{ icon: MENU_ICONS.flame, label: "Fornello", run: () => go("components") }]
     });
     const stopTopMenu = keepTopMenu();
     const mounted = /* @__PURE__ */ new Set();
@@ -38993,15 +45611,28 @@ button.primary { border-color: var(--d-btn-border-active); color: var(--d-btn-te
     const unsubscribe = settings.subscribe((s) => {
       if (s.mode !== last.mode) chat.reset();
       else if (s.autoRun !== last.autoRun) chat.rerank();
+      if (s.assets !== last.assets) {
+        if (last.assets.tags && !s.assets.tags) void removePictureRegex().catch((e) => console.warn("[Fornello] picture regex", e));
+        if (last.assets.tags && !s.assets.tags || last.assets.tags && last.assets.tell !== s.assets.tell) void removePictureRules().catch((e) => console.warn("[Fornello] picture rules", e)).finally(() => assets.reset());
+        else assets.reset();
+      }
+      const openChat = currentChatId();
+      const trackerWas = last.story.on && last.story.tracker;
+      const trackerIs = s.story.on && s.story.tracker;
+      if (openChat && trackerWas && !trackerIs) void story.mirror(openChat, true).catch((e) => console.warn("[Fornello] Pesto tracker", e));
+      if (openChat && !trackerWas && trackerIs) void story.mirror(openChat).catch((e) => console.warn("[Fornello] Pesto tracker", e));
+      if (openChat && last.story.on && last.story.vars && !(s.story.on && s.story.vars)) void story.writeVars(openChat).catch((e) => console.warn("[Fornello] Pesto variables", e));
+      if (last.story.on && !s.story.on) void story.turnedOff();
       if (s.mode === "off") for (const block of mounted) block.stop();
       if (s.mode !== last.mode || s.components !== last.components || s.display !== last.display || s.trustedCards !== last.trustedCards) components.reset();
+      if (s.scriptPlaces !== last.scriptPlaces) scriptButtons.refresh();
       if (s.mode !== last.mode || s.scripts !== last.scripts || s.trustedScripts !== last.trustedScripts || s.scriptSwitch !== last.scriptSwitch) scripts.refresh();
       last = s;
     });
     const bridge = {
       version: 1,
       mount: (container, code, options = {}) => {
-        const block = new PageBlock(code, { settings, autoRun: options.run === true, openSettings: () => openSettings() });
+        const block = new PageBlock(code, { settings, autoRun: options.run === true, openSettings: () => openSettings(void 0, true), fillAssets: (c) => fillPageAssets(c) });
         container.append(block.element);
         mounted.add(block);
         return {
@@ -39011,9 +45642,12 @@ button.primary { border-color: var(--d-btn-border-active); color: var(--d-btn-te
           }
         };
       },
-      openSettings: () => openSettings()
+      openSettings: () => openSettings(),
+      fillAssets: (code) => fillPageAssets(code)
     };
     window.__fornello = bridge;
+    const removeAssetCommands = addAssetCommands();
+    const unhookImport = hookCharacterImport(settings);
     let themeTimer = null;
     const themeObserver = new MutationObserver(() => {
       if (themeTimer) clearTimeout(themeTimer);
@@ -39029,6 +45663,8 @@ button.primary { border-color: var(--d-btn-border-active); color: var(--d-btn-te
     const unwatchLang = onLangChange(() => {
       panel.refresh();
       library.refresh();
+      assetManager.refresh();
+      storyValues.refresh();
       PageBlock.relabelAll();
       scripts.refresh();
       components.reset();
@@ -39039,15 +45675,23 @@ button.primary { border-color: var(--d-btn-border-active); color: var(--d-btn-te
       themeObserver.disconnect();
       window.removeEventListener("resize", onResize);
       unwatchLang();
+      removeAssetCommands();
+      unhookImport();
       stopTopMenu();
       removeMenu();
       unsubscribe();
       chat.stop();
+      assets.stop();
+      story.stop();
+      templates.stop();
       components.stop();
       scripts.stop();
       panel.close();
       library.close();
+      assetManager.close();
+      storyValues.close();
       askPopup.close();
+      storyAsk.close();
       scriptButtons.stop();
       for (const block of mounted) block.dispose();
       mounted.clear();
