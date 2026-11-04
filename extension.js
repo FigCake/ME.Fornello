@@ -1,7 +1,7 @@
-/*! Fornello 0.3.8 — page runner for Marinara Engine 2.5.x (External Extension).
+/*! Fornello 0.3.9 — page runner for Marinara Engine 2.5.x (External Extension).
  * Runs HTML pages and their scripts in Marinara with a JavaScript interpreter.
  * Copyright (C) 2026 FigCake. Works with Marinara Engine (AGPL-3.0); includes sval, acorn, sucrase and html-to-image (MIT) and Lucide icons (ISC).
- * License: AGPL-3.0. Source: https://github.com/FigCake/ME.Fornello (ME-Fornello-0.3.8-source.zip) */
+ * License: AGPL-3.0. Source: https://github.com/FigCake/ME.Fornello (ME-Fornello-0.3.9-source.zip) */
 "use strict";
 (() => {
   var __create = Object.create;
@@ -4758,7 +4758,7 @@ ${line}`))) return false;
   }
 
   // package.json
-  var version = "0.3.8";
+  var version = "0.3.9";
 
   // src/api/shared-globals.ts
   var values = /* @__PURE__ */ new Map();
@@ -34556,7 +34556,8 @@ ${HOVER_TOOLS}
       `After a paragraph you may show a picture by writing [img:name] on its own line: at most ${most} per reply, only when one fits the moment. Use only these names:`,
       ...lines.map(([who, names]) => `${who}: ${names.join(", ")}`),
       "For a picture of someone other than the one speaking, write [img:person:name].",
-      'In an HTML page, write {{raw::name}} where its address goes (<img src="{{raw::name}}">), choosing pictures that fit the scene.'
+      // no HTML tag in it: Marinara's outgoing-prompt cleanup would take the tag out
+      "In an HTML page, write {{raw::name}} where its address goes (as an image's src value, or inside url() in CSS), choosing pictures that fit the scene."
     ].join("\n");
   }
 
@@ -45632,7 +45633,7 @@ pre.code { margin: 0; max-height: 260px; overflow: auto; font: 11px/1.45 var(--d
     const bridge = {
       version: 1,
       mount: (container, code, options = {}) => {
-        const block = new PageBlock(code, { settings, autoRun: options.run === true, openSettings: () => openSettings(void 0, true), fillAssets: (c) => fillPageAssets(c, options.chatId || currentChatId()) });
+        const block = new PageBlock(code, { settings, autoRun: options.run ?? settings.current.mode === "always", openSettings: () => openSettings(void 0, true), fillAssets: (c) => fillPageAssets(c, options.chatId || currentChatId()) });
         container.append(block.element);
         mounted.add(block);
         return {
@@ -45643,7 +45644,18 @@ pre.code { margin: 0; max-height: 260px; overflow: auto; font: 11px/1.45 var(--d
         };
       },
       openSettings: () => openSettings(),
-      fillAssets: (code, chatId) => fillPageAssets(code, chatId || currentChatId())
+      fillAssets: (code, chatId) => fillPageAssets(code, chatId || currentChatId()),
+      pictures: async (chatId) => {
+        const seen2 = /* @__PURE__ */ new Set();
+        return (await chatAssetList(chatId || currentChatId())).flatMap((a) => {
+          const person = a.person || a.character;
+          const key = `${person}
+${a.name}`.toLowerCase();
+          if (seen2.has(key)) return [];
+          seen2.add(key);
+          return [{ name: a.name, person }];
+        });
+      }
     };
     window.__fornello = bridge;
     const removeAssetCommands = addAssetCommands();
