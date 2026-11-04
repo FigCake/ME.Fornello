@@ -1,7 +1,7 @@
-/*! Fornello 0.3.7 — page runner for Marinara Engine 2.5.x (External Extension).
+/*! Fornello 0.3.8 — page runner for Marinara Engine 2.5.x (External Extension).
  * Runs HTML pages and their scripts in Marinara with a JavaScript interpreter.
  * Copyright (C) 2026 FigCake. Works with Marinara Engine (AGPL-3.0); includes sval, acorn, sucrase and html-to-image (MIT) and Lucide icons (ISC).
- * License: AGPL-3.0. Source: https://github.com/FigCake/ME.Fornello (ME-Fornello-0.3.7-source.zip) */
+ * License: AGPL-3.0. Source: https://github.com/FigCake/ME.Fornello (ME-Fornello-0.3.8-source.zip) */
 "use strict";
 (() => {
   var __create = Object.create;
@@ -4758,7 +4758,7 @@ ${line}`))) return false;
   }
 
   // package.json
-  var version = "0.3.7";
+  var version = "0.3.8";
 
   // src/api/shared-globals.ts
   var values = /* @__PURE__ */ new Map();
@@ -45632,7 +45632,7 @@ pre.code { margin: 0; max-height: 260px; overflow: auto; font: 11px/1.45 var(--d
     const bridge = {
       version: 1,
       mount: (container, code, options = {}) => {
-        const block = new PageBlock(code, { settings, autoRun: options.run === true, openSettings: () => openSettings(void 0, true), fillAssets: (c) => fillPageAssets(c) });
+        const block = new PageBlock(code, { settings, autoRun: options.run === true, openSettings: () => openSettings(void 0, true), fillAssets: (c) => fillPageAssets(c, options.chatId || currentChatId()) });
         container.append(block.element);
         mounted.add(block);
         return {
@@ -45643,7 +45643,7 @@ pre.code { margin: 0; max-height: 260px; overflow: auto; font: 11px/1.45 var(--d
         };
       },
       openSettings: () => openSettings(),
-      fillAssets: (code) => fillPageAssets(code)
+      fillAssets: (code, chatId) => fillPageAssets(code, chatId || currentChatId())
     };
     window.__fornello = bridge;
     const removeAssetCommands = addAssetCommands();
