@@ -33,8 +33,8 @@ Or install and update it with [Fetchy](https://github.com/FigCake/ME.Fetchy): ad
 
 | Setting | Means |
 |---|---|
-| Run scripts | **Run at once** (default: recent pages start when on screen) · **Click to run** · **Off** (components and scripts too) |
-| Recent pages to auto-run | How many recent pages start by themselves (default 3) |
+| Run scripts | **Run at once** (default: pages of recent messages start when on screen) · **Click to run** · **Off** (components and scripts too) |
+| Recent messages to auto-run | How many recent messages have their pages start by themselves, every page in them (default 3) |
 | Replies to keep open | How many recent replies show their components open |
 | Components of older replies | **Collapse** or **Hide** |
 
@@ -196,7 +196,7 @@ function onReply({ values, derived, changes, events, dice, text }) {
 
 ## SillyTavern cards
 
-* **Variable cards** (setting **SillyTavern variable cards too**): a card whose lorebook has `[InitVar]` entries, or whose first message starts its values with `<VariableInsert>` tags, gets Pesto from them (when one of its scripts describes the values in code, their kinds, ranges and defaults are read from that code, which isn't run for it); its own update tags (`<UpdateVariable>`, `<VariableEdit>`…) count as the AI's changes. **The card's entries** in the Pesto window can copy that data as `pesto:schema` and `pesto:start`
+* **Variable cards** (setting **SillyTavern variable cards too**): a card with `[InitVar]` entries or `<VariableInsert>` tags in its first message gets Pesto from them; a schema in its scripts gives the kinds and ranges (read, not run). Its update tags (`<UpdateVariable>`, `<VariableEdit>`…) count as the AI's changes, and its MVU status pages read Pesto's values. Turn on **Scoped Regex Scripts** in Marinara's chat settings for the card's own regexes. **The card's entries** in the Pesto window copy that data as `pesto:schema` and `pesto:start`
 * **Templates** (`<% %>` in lorebook entries): Settings → **SillyTavern templates** lists them (shown when the open chat's cards have some). **Convert** changes their text in place, **Put back** restores it:
   * conditions on values become Marinara's own `{{#if}}`
   * the rest (loops, functions, `setvar`, page commands…) Fornello runs before each reply, once you allow each template, cut off from the network. They can use `getvar` / `setvar` / `incvar` / `decvar`, `getwi`, `getchar`, `execute`, `_`, `user`, `char` and the page commands (`await generate(…)`)

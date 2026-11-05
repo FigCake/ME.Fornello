@@ -1,7 +1,7 @@
-Fornello 0.3.9
+Fornello 0.4.0
 
 Copyright (C) 2026 FigCake. Released under the GNU Affero General Public License v3.0 (LICENSE).
-The complete source is ME-Fornello-0.3.9-source.zip, published next to the build at https://github.com/FigCake/ME.Fornello.
+The complete source is ME-Fornello-0.4.0-source.zip, published next to the build at https://github.com/FigCake/ME.Fornello.
 If you distribute a modified version or offer it as a service, its source must be released under the AGPL-3.0 too.
 
 Built against Marinara Engine (AGPL-3.0), its API and behavior.
