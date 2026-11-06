@@ -108,14 +108,14 @@ Fornello checks each change (kind, limits, who may change it), works out events 
 |---|---|
 | Where the values go | How many messages from the end of the chat (default 1) |
 | SillyTavern variable cards too | Cards without `pesto:schema` that bring their own starting values ([below](#sillytavern-cards)) |
-| Who reports the changes | **The AI** · **The AI, a helper model when it forgets** · **A helper model** (the AI only writes the story) |
+| Recording changes | **This chat's connection** · **This chat's connection + a helper model when missing** · **A helper model** (the AI only writes the story) |
 | Helper model | A cheap, quick connection is enough |
-| Give the values to Marinara's prompts | The values as chat variables: `{{getvar::story_hp}}`, `{{#if var:story_hp < 10}}…{{/if}}` (each value's name shows when you point at it in the window) |
-| Show in Marinara's tracker | The values as the tracker's custom fields |
+| Use the values as chat variables | The values as chat variables: `{{getvar::story_hp}}`, `{{#if var:story_hp < 10}}…{{/if}}` (each value's name shows when you point at it in the window) |
+| Show the values in the tracker | The values as the tracker's custom fields |
 
 ### In a card
 
-Lorebook entries in the card's lorebook (or the chat's, which wins), **turned off**, written in YAML or JSON.
+Lorebook entries in the card's lorebook (or the chat's, which wins), **turned off**, written in YAML or JSON. In a chat without Pesto, **Add Pesto entries** in the Status tab makes all four, turned off, with examples. Only `pesto:schema` is needed; delete the others if unused.
 
 `pesto:schema`, the values:
 
@@ -126,7 +126,7 @@ fields:
   gold: { type: int, min: 0 }
   mood: { type: enum, of: [calm, angry, sad] }
   bag: { type: list, of: text, max_items: 10 }
-  trust: { type: map, of: { type: int, min: -10, max: 10 } }   # trust.mina, trust.ari…
+  trust: { type: map, of: { type: int, min: -10, max: 10 } }   # trust.<name>…
   hero:                                  # a group
     name: { type: text, readonly: true }
     level: 1                             # a kind and a default at once
@@ -176,7 +176,7 @@ dice:                                    # rolled before each reply; the AI is t
 triggers:                                # text for the AI while a condition holds
   wounded:
     when: hurt
-    text: Ari is badly hurt and limps.
+    text: Badly hurt, limping.
     depth: 2
   night:
     when: night
@@ -190,7 +190,7 @@ Steps: `set`, `add`, `sub`, `push`, `pull`, `remove`, `if` / `then` / `else`, `d
 ```js
 function onReply({ values, derived, changes, events, dice, text }) {
   if (values.hp <= 0 && !values.dead)
-    return { set: { dead: true }, effects: [{ cmd: "toast", args: ["Ari falls."] }] };
+    return { set: { dead: true }, effects: [{ cmd: "toast", args: ["Down."] }] };
 }
 ```
 

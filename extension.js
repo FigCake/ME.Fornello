@@ -1,7 +1,7 @@
-/*! Fornello 0.4.0 — page runner for Marinara Engine 2.5.x (External Extension).
+/*! Fornello 0.4.1 — page runner for Marinara Engine 2.5.x (External Extension).
  * Runs HTML pages and their scripts in Marinara with a JavaScript interpreter.
  * Copyright (C) 2026 FigCake. Works with Marinara Engine (AGPL-3.0); includes sval, acorn, sucrase and html-to-image (MIT) and Lucide icons (ISC).
- * License: AGPL-3.0. Source: https://github.com/FigCake/ME.Fornello (ME-Fornello-0.4.0-source.zip) */
+ * License: AGPL-3.0. Source: https://github.com/FigCake/ME.Fornello (ME-Fornello-0.4.1-source.zip) */
 "use strict";
 (() => {
   var __create = Object.create;
@@ -4758,7 +4758,7 @@ ${line}`))) return false;
   }
 
   // package.json
-  var version = "0.4.0";
+  var version = "0.4.1";
 
   // src/api/shared-globals.ts
   var values = /* @__PURE__ */ new Map();
@@ -13749,6 +13749,7 @@ ${filled.trim()}
   var REGEX_NAME = "Fornello: Pesto blocks";
   var BLOCK_PATTERN = "\\n*```[ \\t]*pesto(?![\\w-])[^\\n]*\\n[\\s\\S]*?(?:```|$)";
   var entryText = (e) => withoutFence(String(e.content ?? ""));
+  var onlyComments = (code) => !code.replace(/\/\*[\s\S]*?\*\/|\/\/[^\n]*/g, "").trim();
   async function storyLore(chatId, others = false) {
     const cast = await chatCharacters(chatId);
     const lists2 = await Promise.all(cast.map((c) => characterLore(c.id).catch(() => [])));
@@ -13760,7 +13761,11 @@ ${filled.trim()}
       const label = String(entry.name ?? "").trim();
       if (!label.toLowerCase().startsWith("pesto:")) continue;
       const name = label.slice("pesto:".length).trim().toLowerCase();
-      for (const kind of Object.keys(ENTRY_NAMES)) if (ENTRY_NAMES[kind].includes(name)) texts[kind] = entryText(entry);
+      for (const kind of Object.keys(ENTRY_NAMES)) {
+        if (!ENTRY_NAMES[kind].includes(name)) continue;
+        const text2 = entryText(entry);
+        if (kind !== "code" || !onlyComments(text2)) texts[kind] = text2;
+      }
     }
     if (!texts.schema && others) {
       let from = "initvar";
@@ -41114,10 +41119,10 @@ ${example}${valueLines2(fields)}`;
   }
   async function ruleToChatBook(chatId, name, rule) {
     const book = await chatLoreBook(chatId);
-    const entryName = `Fornello component rule: ${name}`;
-    const same3 = (await loreEntries(book.id)).find((e) => e.name === entryName);
-    if (same3) await patchLoreEntry(book.id, same3.id, { name: entryName, content: rule, enabled: true, constant: true });
-    else await createLoreEntry(book.id, { name: entryName, content: rule, enabled: true, constant: true, position: 2, depth: 1, order: 900 });
+    const entryName2 = `Fornello component rule: ${name}`;
+    const same3 = (await loreEntries(book.id)).find((e) => e.name === entryName2);
+    if (same3) await patchLoreEntry(book.id, same3.id, { name: entryName2, content: rule, enabled: true, constant: true });
+    else await createLoreEntry(book.id, { name: entryName2, content: rule, enabled: true, constant: true, position: 2, depth: 1, order: 900 });
     return book;
   }
 
@@ -44313,8 +44318,8 @@ textarea.small { min-height: 64px; resize: vertical; font: 12px/1.45 var(--d-mon
 
   // src/ui/settings-parts.ts
   var WRITER_LABELS = {
-    ai: () => t("The AI", "AI"),
-    fill: () => t("The AI, a helper model when it forgets", "AI, 빠지면 보조 모델"),
+    ai: () => t("This chat's connection", "현재 연결"),
+    fill: () => t("This chat's connection + a helper model when missing", "현재 연결 + 누락 시 보조 모델"),
     helper: () => t("A helper model", "보조 모델")
   };
   function offWhen(off, label) {
@@ -44490,10 +44495,10 @@ textarea.small { min-height: 64px; resize: vertical; font: 12px/1.45 var(--d-mon
           )
         ),
         setting(
-          t("Who reports the changes", "변경을 쓰는 쪽"),
+          t("Recording changes", "변경 사항 기록"),
           el(
             "select",
-            { "aria-label": t("Who reports the changes", "변경을 쓰는 쪽"), "data-key": "story-writer", disabled: !st2.on, onchange: (e) => set({ writer: e.target.value }) },
+            { "aria-label": t("Recording changes", "변경 사항 기록"), "data-key": "story-writer", disabled: !st2.on, onchange: (e) => set({ writer: e.target.value }) },
             ...STORY_WRITERS.map((w2) => el("option", { value: w2, selected: w2 === st2.writer }, WRITER_LABELS[w2]()))
           ),
           t(
@@ -44503,16 +44508,16 @@ textarea.small { min-height: 64px; resize: vertical; font: 12px/1.45 var(--d-mon
         ),
         st2.writer !== "ai" ? setting(t("Helper model", "보조 모델"), this.connectionPicker(st2, set), t("A cheap, quick connection is enough", "싸고 빠른 연결이면 충분해요")) : null,
         setting(
-          t("Give the values to Marinara's prompts", "마리나라 프롬프트에 값 주기"),
-          offWhen(!st2.on, toggle(st2.vars, (v) => set({ vars: v }), t("Give the values to Marinara's prompts", "마리나라 프롬프트에 값 주기"), "story-vars")),
+          t("Use the values as chat variables", "값을 채팅 변수로 쓰기"),
+          offWhen(!st2.on, toggle(st2.vars, (v) => set({ vars: v }), t("Use the values as chat variables", "값을 채팅 변수로 쓰기"), "story-vars")),
           t(
             `Before each reply the values become this chat's variables, named "story_" and their path ("story_hp"), so the card's prompts and lorebook entries can use {{getvar::story_hp}} and {{#if var:story_hp < 10}}…{{/if}}. The Pesto window shows each value's name`,
             '답변마다 값을 이 채팅의 변수로 넣어요. 이름은 "story_"와 경로예요("story_hp"). 그래서 카드의 프롬프트·로어북에서 {{getvar::story_hp}}, {{#if var:story_hp < 10}}…{{/if}}처럼 쓸 수 있어요. 값마다 변수 이름은 Pesto 창에서 볼 수 있어요'
           )
         ),
         setting(
-          t("Show in Marinara's tracker", "마리나라 트래커에 보이기"),
-          offWhen(!st2.on, toggle(st2.tracker, (v) => set({ tracker: v }), t("Show in Marinara's tracker", "마리나라 트래커에 보이기"), "story-tracker")),
+          t("Show the values in the tracker", "트래커에 값 보이기"),
+          offWhen(!st2.on, toggle(st2.tracker, (v) => set({ tracker: v }), t("Show the values in the tracker", "트래커에 값 보이기"), "story-tracker")),
           t(
             "The values also go in the tracker's World panel, as custom fields named by their paths, on the last reply (the tracker's other fields stay as they are)",
             "값을 트래커의 월드 패널에도 경로 이름의 사용자 필드로 넣어요. 마지막 답장 기준이고, 트래커의 다른 필드는 그대로 둬요"
@@ -45213,6 +45218,105 @@ button.primary { border-color: var(--d-btn-border-active); color: var(--d-btn-te
     );
   }
 
+  // src/state/starter.ts
+  var STARTER_KINDS = ["schema", "start", "rules", "code"];
+  function starterText(kind) {
+    switch (kind) {
+      case "schema":
+        return t(
+          `# The values Fornello keeps (required). Write over the example.
+# name: { type, min, max, default, note }
+# types: int, number, text, bool, enum (of: [...]), list, map; a name without type is a group
+fields:
+  affection: { type: int, min: 0, max: 100, default: 30, note: "+1 to +3 when treated kindly, -3 to -5 when treated rudely" }
+  mood: { type: enum, of: [calm, happy, angry, sad], default: calm }
+  items: { type: list, of: text, max_items: 10 }
+`,
+          `# Fornello가 기억할 값(필수). 예시를 지우고 쓰세요.
+# 이름: { type, min, max, default, note }
+# type: int, number, text, bool, enum (of: [...]), list, map. type이 없으면 묶음
+fields:
+  호감도: { type: int, min: 0, max: 100, default: 30, note: "다정하게 대하면 +1~3, 무례하면 -3~5" }
+  기분: { type: enum, of: [평온, 기쁨, 화남, 슬픔], default: 평온 }
+  소지품: { type: list, of: text, max_items: 10 }
+`
+        );
+      case "start":
+        return t(
+          `# The values at the first message (optional; a value not here starts at its default). Delete this entry if not needed.
+affection: 30
+`,
+          `# 첫 메시지 때의 값(선택. 없는 값은 default로 시작). 필요 없으면 이 항목을 지우세요.
+호감도: 30
+`
+        );
+      case "rules":
+        return t(
+          `# Events the AI can call, steps after every reply, dice, triggers (optional). Delete this entry if not needed.
+# events:
+#   rest:
+#     params: { hours: 8 }
+#     do:
+#       - add: { hp: hours * 5 }
+# each_reply:
+#   - add: { turn: 1 }
+# dice:
+#   check: 1d20
+# triggers:
+#   upset:
+#     when: mood == "angry"
+#     text: Short, sharp answers.
+`,
+          `# AI가 부르는 이벤트, 답변마다 도는 단계, 주사위, 트리거(선택). 필요 없으면 이 항목을 지우세요.
+# events:
+#   쉬기:
+#     params: { 시간: 8 }
+#     do:
+#       - add: { 체력: 시간 * 5 }
+# each_reply:
+#   - add: { 턴: 1 }
+# dice:
+#   판정: 1d20
+# triggers:
+#   화남:
+#     when: 기분 == "화남"
+#     text: 말이 짧고 날카로워진다.
+`
+        );
+      case "code":
+        return t(
+          `// JavaScript run after each reply, once you allow it (optional). Delete this entry if not needed.
+// function onReply({ values, derived, changes, events, dice, text }) {
+//   if (values.affection >= 80) return { set: { mood: "happy" } };
+// }
+`,
+          `// 답변마다 도는 자바스크립트. 허락해야 돌아요(선택). 필요 없으면 이 항목을 지우세요.
+// function onReply({ values, derived, changes, events, dice, text }) {
+//   if (values.호감도 >= 80) return { set: { 기분: "기쁨" } };
+// }
+`
+        );
+    }
+  }
+  var entryName = (kind) => `pesto:${kind}`;
+  async function addStarterEntries(chatId, c) {
+    let book = await cardBook(c, true);
+    let where = "card";
+    if (!book) {
+      book = (await chatLoreBook(chatId)).id;
+      where = "chat";
+    }
+    const have = new Set((await loreEntries(book)).map((e) => String(e.name ?? "").trim().toLowerCase()));
+    const added = [];
+    for (const kind of STARTER_KINDS) {
+      if (have.has(entryName(kind)) || kind === "start" && have.has("pesto:init")) continue;
+      await createLoreEntry(book, { name: entryName(kind), content: starterText(kind), enabled: false });
+      added.push(kind);
+    }
+    forgetPeople();
+    return { added, where };
+  }
+
   // src/ui/story-values.ts
   var STYLE10 = `
 ${THEME_TOKENS}
@@ -45273,7 +45377,7 @@ pre.code { margin: 0; max-height: 260px; overflow: auto; font: 11px/1.45 var(--d
           return JSON.parse(text2);
         } catch {
           if (field2.kind === "any") return text2;
-          throw new Error(t('Needs JSON, like ["rope"] or {"mina": 3}.', 'JSON으로 넣어 주세요. 예: ["rope"], {"mina": 3}'));
+          throw new Error(t('Needs JSON, like ["rope"] or {"a": 3}.', 'JSON으로 넣어 주세요. 예: ["rope"], {"a": 3}'));
         }
     }
   }
@@ -45288,6 +45392,9 @@ pre.code { margin: 0; max-height: 260px; overflow: auto; font: 11px/1.45 var(--d
     view = null;
     code = null;
     loaded = false;
+    /** The chat's cards, read when it has no Pesto yet (for adding the entries). */
+    cast = [];
+    adding = false;
     /** The card's entries: their problems, and a converted card's entries written out. */
     card = null;
     /** The number values over the last messages, for the graphs. */
@@ -45359,6 +45466,7 @@ pre.code { margin: 0; max-height: 260px; overflow: auto; font: 11px/1.45 var(--d
         this.card = card ?? null;
         this.history = history ?? null;
         this.tried = null;
+        this.cast = this.view ? [] : await chatCharacters(chatId).catch(() => []);
       } catch (e) {
         this.view = null;
         showToast(e instanceof Error ? e.message : String(e), "warning");
@@ -45427,7 +45535,8 @@ pre.code { margin: 0; max-height: 260px; overflow: auto; font: 11px/1.45 var(--d
               "This chat has no Pesto: turn it on in the settings, for a card with a pesto:schema lorebook entry.",
               "이 채팅에는 Pesto가 없어요. 설정에서 켜고, 로어북에 pesto:schema 항목이 있는 카드로 써 보세요."
             )
-          )
+          ),
+          ...this.cast.length ? [this.starterSection()] : []
         ];
       return [this.valuesSection(view), this.turnSection(view), ...this.graphSection(), this.trySection(), ...this.card ? [this.cardSection(this.card)] : [], ...this.code ? [this.codeSection(this.code)] : []];
     }
@@ -45538,7 +45647,7 @@ pre.code { margin: 0; max-height: 260px; overflow: auto; font: 11px/1.45 var(--d
         rows: 4,
         "aria-label": t("A reply to try", "시험할 답장"),
         "data-key": "story-try-text",
-        placeholder: t("Ari falls.\n```pesto\nhp -= 5\n```", "아리가 넘어졌다.\n```pesto\nhp -= 5\n```"),
+        placeholder: t("Falls down.\n```pesto\nhp -= 5\n```", "넘어졌다.\n```pesto\nhp -= 5\n```"),
         oninput: (e) => this.tryText = e.target.value
       });
       box.value = this.tryText;
@@ -45571,6 +45680,40 @@ pre.code { margin: 0; max-height: 260px; overflow: auto; font: 11px/1.45 var(--d
           tried.turn.problems.length ? el("ul", { className: "log" }, ...tried.turn.problems.map((p2) => el("li", { className: "bad" }, `${p2.path ?? (p2.event ? `do ${p2.event}` : "")}${p2.path || p2.event ? ": " : ""}${p2.detail ?? p2.why}`))) : null,
           tried.turn.effects?.length ? el("div", { className: "note" }, t(`Effects it would ask for: ${tried.turn.effects.map((e) => e.cmd).join(", ")}`, `부탁할 효과: ${tried.turn.effects.map((e) => e.cmd).join(", ")}`)) : null
         ) : null
+      );
+    }
+    /** For a card without Pesto: its four entries added to its lorebook, turned off, with examples to write over. */
+    starterSection() {
+      const chatId = this.chatId;
+      const add = async (c) => {
+        if (!chatId || this.adding) return;
+        this.adding = true;
+        this.render();
+        try {
+          const { added, where } = await addStarterEntries(chatId, c);
+          const names = added.map((k2) => `pesto:${k2}`).join(", ");
+          const place = where === "card" ? t(`${c.name}'s lorebook`, `${c.name}의 로어북`) : t("this chat's lorebook", "이 채팅 로어북");
+          showToast(added.length ? t(`Added ${names} to ${place} (turned off).`, `${place}에 ${names}를 넣었어요(꺼진 상태).`) : t(`${place} already has them.`, `${place}에 이미 있어요.`), "info");
+        } catch (e) {
+          showToast(e instanceof Error ? e.message : String(e), "warning");
+        }
+        this.adding = false;
+        await this.load();
+      };
+      return section(
+        t("Add Pesto entries", "Pesto 항목 넣기"),
+        t(
+          "Adds pesto:schema, pesto:start, pesto:rules and pesto:code to the card's lorebook, turned off, each with an example to write over. Only pesto:schema is needed: delete the others if you don't use them",
+          "카드 로어북에 pesto:schema, pesto:start, pesto:rules, pesto:code를 꺼진 상태로 넣어요. 안에 예시가 있으니 고쳐 쓰세요. 꼭 필요한 건 pesto:schema뿐이고, 나머지는 쓰지 않으면 지워도 돼요"
+        ),
+        this.cast.map(
+          (c) => el(
+            "button",
+            { className: "mini", "data-key": `story-starter-${c.id}`, disabled: this.adding, onclick: () => void add(c) },
+            this.cast.length > 1 ? t(`Add to ${c.name}`, `${c.name}에 넣기`) : t("Add", "넣기")
+          )
+        ),
+        el("div", { className: "note" }, t("Only pesto:schema is needed; delete the others if you don't use them.", "꼭 필요한 건 pesto:schema뿐이에요. 나머지는 쓰지 않으면 지워도 돼요."))
       );
     }
     /** The card's entries: what is wrong in them, and a card read from its own variable data written as Fornello's entries, to copy. */

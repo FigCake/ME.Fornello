@@ -108,14 +108,14 @@ Fornello는 변경마다 검사하고(종류·범위·바꿀 수 있는 쪽), �
 |---|---|
 | 값을 넣을 위치 | 채팅 끝에서 몇 번째 메시지 앞인지(기본 1) |
 | 실리태번 변수 카드도 읽기 | `pesto:schema` 없이 자기 시작값을 가진 카드([아래](#실리태번-카드)) |
-| 변경을 쓰는 쪽 | **AI** · **AI, 빠지면 보조 모델** · **보조 모델**(AI는 이야기만 써요) |
+| 변경 사항 기록 | **현재 연결** · **현재 연결 + 누락 시 보조 모델** · **보조 모델**(AI는 이야기만 써요) |
 | 보조 모델 | 싸고 빠른 연결이면 충분해요 |
-| 마리나라 프롬프트에 값 주기 | 값을 채팅 변수로: `{{getvar::story_hp}}`, `{{#if var:story_hp < 10}}…{{/if}}`(값마다 변수 이름은 창에서 값에 마우스를 올리면 보여요) |
-| 마리나라 트래커에 보이기 | 값을 트래커의 사용자 필드로 |
+| 값을 채팅 변수로 쓰기 | 값을 채팅 변수로: `{{getvar::story_hp}}`, `{{#if var:story_hp < 10}}…{{/if}}`(값마다 변수 이름은 창에서 값에 마우스를 올리면 보여요) |
+| 트래커에 값 보이기 | 값을 트래커의 사용자 필드로 |
 
 ### 카드에 넣기
 
-카드 로어북(또는 채팅 로어북. 채팅 쪽이 우선)에 항목을 **꺼 두고** 넣어요. YAML이나 JSON으로 써요.
+카드 로어북(또는 채팅 로어북. 채팅 쪽이 우선)에 항목을 **꺼 두고** 넣어요. YAML이나 JSON으로 써요. Pesto가 없는 채팅의 상태창 탭에서 **Pesto 항목 넣기**를 누르면 네 항목이 예시와 함께 꺼진 채로 생겨요. 꼭 필요한 건 `pesto:schema`뿐이고 나머지는 지워도 돼요.
 
 `pesto:schema`: 값 목록
 
@@ -126,7 +126,7 @@ fields:
   gold: { type: int, min: 0 }
   mood: { type: enum, of: [calm, angry, sad] }
   bag: { type: list, of: text, max_items: 10 }
-  trust: { type: map, of: { type: int, min: -10, max: 10 } }   # trust.mina, trust.ari…
+  trust: { type: map, of: { type: int, min: -10, max: 10 } }   # trust.이름…
   hero:                                  # 묶음
     name: { type: text, readonly: true }
     level: 1                             # 종류와 기본값을 한 번에
@@ -164,7 +164,7 @@ dice:                                    # 답변마다 미리 굴리고 AI에�
 triggers:                                # 조건이 참인 동안 AI에게 줄 글
   wounded:
     when: hurt
-    text: 아리는 크게 다쳐 다리를 전다.
+    text: 크게 다쳐 다리를 전다.
 ```
 
 단계: `set`·`add`·`sub`·`push`·`pull`·`remove`·`if`/`then`/`else`·`do`. 식: `+ - * / %`, 비교, `&& || !`, `a ? b : c`, 경로(`hero.level`, `bag[0]`, `bag.length`), `min max clamp round floor ceil abs sum len has keys roll("2d6+1") chance(30) pick(목록)`.
@@ -174,7 +174,7 @@ triggers:                                # 조건이 참인 동안 AI에게 줄 
 ```js
 function onReply({ values, derived, changes, events, dice, text }) {
   if (values.hp <= 0 && !values.dead)
-    return { set: { dead: true }, effects: [{ cmd: "toast", args: ["아리가 쓰러졌다."] }] };
+    return { set: { dead: true }, effects: [{ cmd: "toast", args: ["쓰러졌다."] }] };
 }
 ```
 
